@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CV Curve Fitting Pro</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" charset="utf-8"></script>
+</head>
+<body>
+    <nav class="top-nav">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <span class="brand-title">CV Curve Fitting Pro</span>
+                <span class="brand-subtitle">Physics-Based Optimization Engine</span>
+            </div>
+            <div class="nav-links">
+                <a href="#" class="active">Solver</a>
+                <a href="#">Documentation</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="app-container">
+        <div class="content-grid">
+            <!-- Left Column: Controls -->
+            <div class="controls-column">
+                <section class="panel">
+                    <header class="panel-header">
+                        <h2>Optimization Configuration</h2>
+                    </header>
+                    <div class="panel-body">
+                        <form id="cv-form">
+                            <div class="form-group file-upload-wrapper">
+                                <label>Upload CV Data (.csv)</label>
+                                <div class="file-upload-custom">
+                                    <label for="csv-file" class="btn-secondary">Choose File</label>
+                                    <span id="file-name-display">No file chosen</span>
+                                </div>
+                                <input type="file" id="csv-file" name="file" accept=".csv" required class="hidden-file-input">
+                            </div>
+
+                            <fieldset class="form-section">
+                                <legend>Data Mapping</legend>
+                                <div class="input-grid">
+                                    <div class="form-group">
+                                        <label for="pot_col">Potential Column Index</label>
+                                        <input type="number" id="pot_col" name="pot_col" value="8" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="cur_col">Current Column Index</label>
+                                        <input type="number" id="cur_col" name="cur_col" value="9" required>
+                                    </div>
+                                </div>
+                            </fieldset>
+
+                            <fieldset class="form-section">
+                                <legend>Physical Parameters</legend>
+                                <div class="input-grid">
+                                    <div class="form-group">
+                                        <label for="scan_rate">Scan Rate (V/s)</label>
+                                        <input type="number" id="scan_rate" name="scan_rate" step="0.001" value="0.010" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="film_thickness">Film Thickness (cm)</label>
+                                        <input type="number" id="film_thickness" name="film_thickness" step="1e-5" value="0.0001" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="v_min">Min Potential (V)</label>
+                                        <input type="number" id="v_min" name="v_min" step="0.1" value="-1.0" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="v_max">Max Potential (V)</label>
+                                        <input type="number" id="v_max" name="v_max" step="0.1" value="1.0" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="skip_factor">Data Downsample Factor</label>
+                                        <input type="number" id="skip_factor" name="skip_factor" value="10" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="num_peaks">Number of Peaks</label>
+                                        <input type="number" id="num_peaks" name="num_peaks" value="30" required>
+                                    </div>
+                                </div>
+                            </fieldset>
+                            
+                            <div class="advanced-section">
+                                <button type="button" class="advanced-toggle" id="advanced-toggle" aria-expanded="false">
+                                    Advanced Optimization Settings <span class="toggle-icon">▼</span>
+                                </button>
+                                <div class="advanced-content hidden" id="advanced-content">
+                                    <fieldset class="form-section">
+                                        <legend>Solver Parameters</legend>
+                                        <div class="input-grid">
+                                            <div class="form-group">
+                                                <label for="max_iter">Max Iterations</label>
+                                                <input type="number" id="max_iter" name="max_iter" value="100" required>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="num_terms">Fourier Modes</label>
+                                                <input type="number" id="num_terms" name="num_terms" value="50" required>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="loss_weight_const">Loss Weight Constant</label>
+                                                <input type="number" id="loss_weight_const" name="loss_weight_const" step="0.1" value="1.0" required>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="tol_ftol">Function Tolerance</label>
+                                                <input type="number" id="tol_ftol" name="tol_ftol" step="1e-9" value="1e-8" required>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="tol_gtol">Gradient Tolerance</label>
+                                                <input type="number" id="tol_gtol" name="tol_gtol" step="1e-8" value="1e-7" required>
+                                            </div>
+                                        </div>
+                                    </fieldset>
+                                </div>
+                            </div>
+
+                            <button type="submit" id="submit-btn" class="btn-primary">Execute Optimization</button>
+                        </form>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Right Column: Visualizations & Results -->
+            <div class="visuals-column">
+                <section class="panel status-panel hidden" id="status-panel">
+                    <div class="panel-header status-header">
+                        <div class="spinner hidden"></div>
+                        <div class="status-info">
+                            <h2 id="status-stage">System Ready</h2>
+                            <p id="status-details">Upload data and execute to begin optimization.</p>
+                        </div>
+                    </div>
+                    <div class="panel-body">
+                        <div class="chart-wrapper">
+                            <div id="live-chart"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <div class="results-panel hidden" id="results-panel">
+                    <section class="panel">
+                        <header class="panel-header">
+                            <h2>Extracted Physical Parameters</h2>
+                        </header>
+                        <div class="panel-body">
+                            <div class="stats-grid" id="params-output">
+                                <!-- Filled by JS -->
+                            </div>
+                        </div>
+                    </section>
+
+                    <div class="secondary-charts-grid">
+                        <section class="panel">
+                            <header class="panel-header">
+                                <h3>Density of States</h3>
+                            </header>
+                            <div class="panel-body chart-wrapper-small">
+                                <div id="dos-chart"></div>
+                            </div>
+                        </section>
+                        <section class="panel">
+                            <header class="panel-header">
+                                <h3>Diffusivity Profile</h3>
+                            </header>
+                            <div class="panel-body chart-wrapper-small">
+                                <div id="diffusivity-chart"></div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <footer class="site-footer">
+        <div class="footer-container">
+            <p>&copy; 2026 CV Curve Fitting Pro. Designed for robust, functional analysis.</p>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>

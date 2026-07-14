@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+jax
+jaxlib
+scipy
+pandas
+numpy
+python-multipart
+websockets

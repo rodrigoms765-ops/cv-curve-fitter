@@ -1,0 +1,24 @@
+# Environments
+venv/
+env/
+.env
+.venv
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+
+# Data files (Prevent uploading massive or sensitive raw data)
+*.csv
+*.dat
+*.txt
+!requirements.txt

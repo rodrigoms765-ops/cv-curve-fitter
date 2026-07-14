@@ -5,7 +5,7 @@ A professional, high-performance web application for fitting Cyclic Voltammetry 
 ## Cloud Access
 
 You do not need to install this software to use it. A live cloud version is available here:
-**[Insert your Render URL here]**
+**https://cv-curve-fitter.onrender.com**
 
 If you wish to run it locally for maximum performance (which utilizes your local CPU's multiple cores and AVX instructions via JAX), follow the instructions below.
 

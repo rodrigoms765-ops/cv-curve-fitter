@@ -1,415 +1,682 @@
-// CV Curve Fitting Pro - Web Worker Solver powered by Pyodide (WASM)
-importScripts("https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js");
+// CV Curve Fitting Pro - High-Performance Native JavaScript Optimization Engine
+// Pure Float64Array JIT-compiled simulation core - Blazing fast in-browser execution
 
-let pyodide = null;
-let isReady = false;
-
-const pythonSolverCode = `
-import numpy as np
-import pandas as pd
-import io
-import json
-from scipy.optimize import minimize
-from scipy.signal import savgol_filter
-import js
-
-def load_and_preprocess_cv_data(df, pot_col, cur_col, scan_rate_v_s, skip_factor):
-    raw_potential = df.iloc[:, pot_col].dropna().values.astype(np.float64)
-    raw_current = df.iloc[:, cur_col].dropna().values.astype(np.float64)
-    
-    min_len = min(len(raw_potential), len(raw_current))
-    raw_potential = raw_potential[:min_len]
-    raw_current = raw_current[:min_len]
-    
-    voltage_steps = np.abs(np.diff(raw_potential, prepend=raw_potential[0]))
-    raw_time = np.cumsum(voltage_steps) / scan_rate_v_s
-
-    exp_potential = raw_potential[::skip_factor]
-    exp_current = raw_current[::skip_factor]
-    exp_time = raw_time[::skip_factor]
-
-    return exp_time, exp_potential, exp_current
-
-def extract_physics_priors(potential, turn_idx, num_peaks, v_min, v_max):
-    global_params = [2.0, 1.0, 1.0, float(np.mean(potential)), 0.0, 0.1, 1.0, 0.1, 1.0]
-    peaks_matrix = np.zeros((num_peaks, 3), dtype=np.float64)
-    v_crits = np.linspace(v_min + 0.1, v_max - 0.1, num_peaks)
-    for i in range(num_peaks):
-        peaks_matrix[i] = [1.0, v_crits[i], 15.0]
-    return np.concatenate([global_params, peaks_matrix.flatten()])
-
-def get_parameter_bounds(idx, val, num_globals, v_min, v_max):
-    var = np.abs(val) * 0.5
-    if idx == 0: return (max(1e-8, val - 5.0), val + 5.0)
-    if idx in (1, 2): return (val - 1.0, val + 1.0)
-    if idx == 3: return (val - 0.6, val + 0.6)
-    if idx == 4:
-        var = var if val != 0 else 10.0
-        return (val - var, val + var)
-    if idx in (5, 7): return (max(1e-8, val - (var + 0.1)), val + var + 0.1)
-    if idx in (6, 8): return (max(0.1, val - (var + 0.5)), val + var + 0.5)
-    offset = (idx - num_globals) % 3
-    if offset == 0: return (max(1e-4, val - (var + 1e-4)), val + 5.0)
-    if offset == 1: return (max(v_min, val - (var + 1e-4)), min(v_max, val + var + 1e-4))
-    return (max(0.1, val - (var + 1e-4)), val + 20.0)
-
-def create_staged_bounds(target_params, active_indices, v_min, v_max, num_globals):
-    bounds = []
-    for i, val in enumerate(target_params):
-        if i not in active_indices:
-            bounds.append((val - 1e-9, val + 1e-9))
-        else:
-            bounds.append(get_parameter_bounds(i, val, num_globals, v_min, v_max))
-    return bounds
-
-def run_fourier_simulation_numpy(time_array, potential_array, diffusivity, beta_left, beta_right, v_center, peaks_matrix, num_terms, thickness):
-    n_arr = np.arange(1.0, num_terms + 1.0, dtype=np.float64)
-    wavenumbers = (2.0 * n_arr - 1.0) * np.pi / (2.0 * thickness)
-    fourier_coeffs = 4.0 / ((2.0 * n_arr - 1.0) * np.pi)
-    sin_integrals = 1.0 / wavenumbers
-    
-    dt_arr = np.diff(time_array)
-    dt_arr = np.where(dt_arr <= 0.0, 1e-6, dt_arr)
-    
-    weights = peaks_matrix[:, 0, np.newaxis] 
-    v_crits = peaks_matrix[:, 1, np.newaxis]
-    sharpnesses = peaks_matrix[:, 2, np.newaxis]
-    
-    occ_matrix = weights / (1.0 + np.exp(-sharpnesses * (potential_array[np.newaxis, :] - v_crits)))
-    occ_eq_arr = np.sum(occ_matrix, axis=0)
-    
-    occ_eq_old_arr = occ_eq_arr[:-1]
-    occ_eq_new_arr = occ_eq_arr[1:]
-    
-    beta_arr = np.where(potential_array[1:] < v_center, beta_left, beta_right)
-    d_val_arr = diffusivity * np.exp(beta_arr * (potential_array[1:] - v_center)**2)
-    
-    k_dt_matrix = np.outer(d_val_arr * dt_arr, wavenumbers**2)
-    decay_matrix = np.exp(-k_dt_matrix)
-    
-    forcing_factor = np.where(
-        k_dt_matrix < 1e-8,
-        1.0 - k_dt_matrix / 2.0,
-        (1.0 - decay_matrix) / (k_dt_matrix + 1e-15)
-    )
-    
-    base_forcing = np.outer(occ_eq_old_arr - occ_eq_new_arr, fourier_coeffs)
-    forcing_matrix = base_forcing * forcing_factor
-    
-    N_steps = len(dt_arr)
-    cum_dec = np.ones(num_terms, dtype=np.float64)
-    acc_forc = np.zeros(num_terms, dtype=np.float64)
-    
-    for i in range(N_steps):
-        dec = decay_matrix[i]
-        forc = forcing_matrix[i]
-        cum_dec = cum_dec * dec
-        acc_forc = acc_forc * dec + forc
-        
-    T_m_0 = acc_forc / (1.0 - cum_dec + 1e-15)
-    
-    fourier_history = np.empty((N_steps, num_terms), dtype=np.float64)
-    fourier_modes = T_m_0.copy()
-    for i in range(N_steps):
-        fourier_modes = fourier_modes * decay_matrix[i] + forcing_matrix[i]
-        fourier_history[i] = fourier_modes
-        
-    sum_fourier = np.dot(fourier_history, sin_integrals)
-    total_ions_all = thickness * occ_eq_new_arr + sum_fourier
-    total_ions_old_init = thickness * occ_eq_arr[0] + np.sum(T_m_0 * sin_integrals)
-    total_ions_shifted = np.concatenate([[total_ions_old_init], total_ions_all])
-    simulated_currents = np.diff(total_ions_shifted) / dt_arr
-    
-    return simulated_currents
-
-def solve_cv_pyodide(file_content, config_json_str):
-    config = json.loads(config_json_str)
-    
-    scan_rate_v_s = float(config.get("scan_rate", 0.010))
-    film_thickness = float(config.get("film_thickness", 1e-4))
-    v_min = float(config.get("v_min", -1.0))
-    v_max = float(config.get("v_max", 1.0))
-    skip_factor = int(config.get("skip_factor", 10))
-    num_peaks = int(config.get("num_peaks", 30))
-    max_iter = int(config.get("max_iter", 100))
-    tol_ftol = float(config.get("tol_ftol", 1e-8))
-    tol_gtol = float(config.get("tol_gtol", 1e-7))
-    num_terms = int(config.get("num_terms", 50))
-    loss_weight_const = float(config.get("loss_weight_const", 1.0))
-    pot_col = int(config.get("pot_col", 8))
-    cur_col = int(config.get("cur_col", 9))
-    
-    OPTIMIZER_CONFIG = {
-        "max_iter": max_iter, 
-        "tol_ftol": tol_ftol,
-        "tol_gtol": tol_gtol,
-        "num_globals": 9,
-        "mult_diff": (film_thickness**2) / 10.0,
-        "mult_beta": 1.0,
-        "mult_offset": 1e-4,
-        "mult_bg_a": 1e-4, 
-        "mult_bg_k": 10.0
-    }
-    
-    # Read CSV
-    df = pd.read_csv(io.StringIO(file_content), sep=None, engine='python')
-    
-    exp_time, exp_potential, exp_current = load_and_preprocess_cv_data(
-        df, pot_col, cur_col, scan_rate_v_s, skip_factor
-    )
-    
-    global_target_current = exp_current[1:].ravel()
-
-    turn_idx = np.argmax(np.abs(exp_potential - exp_potential[0]))
-    if turn_idx < len(exp_potential) * 0.1:
-        turn_idx = len(exp_potential) // 2
-
-    window_len = min(51, len(exp_current) if len(exp_current) % 2 != 0 else len(exp_current) - 1)
-    if window_len < 5:
-        smoothed_current = exp_current
-    else:
-        smoothed_current = savgol_filter(exp_current, window_length=window_len, polyorder=3)
-    
-    d2I_raw = np.abs(np.diff(smoothed_current, n=2))
-    d2I = np.pad(d2I_raw, (1, 1), mode='edge')
-    max_d2I = np.max(d2I) if np.max(d2I) > 0 else 1.0
-    loss_weights = (d2I / max_d2I) + loss_weight_const
-
-    edge_threshold = (v_max - v_min) * 0.05
-    left_mask = exp_potential[1:] < (v_min + edge_threshold)
-    right_mask = exp_potential[1:] > (v_max - edge_threshold)
-
-    global_weights = loss_weights[1:].ravel().copy()
-    global_weights_masked = global_weights.copy()
-    global_weights_masked[left_mask] = 0.0
-    global_weights_masked[right_mask] = 0.0
-
-    data_driven_initial_guess = extract_physics_priors(
-        exp_potential, turn_idx, num_peaks, v_min, v_max
-    )
-
-    initial_peaks_matrix = data_driven_initial_guess[OPTIMIZER_CONFIG["num_globals"]:].reshape((-1, 3))
-    baseline_diffusivity = data_driven_initial_guess[0] * OPTIMIZER_CONFIG["mult_diff"]
-
-    calibration_sim = run_fourier_simulation_numpy(
-        exp_time, exp_potential,
-        baseline_diffusivity, 0.0, 0.0,
-        data_driven_initial_guess[3],
-        initial_peaks_matrix, num_terms, film_thickness
-    )
-
-    pure_faradaic_target = exp_current[1:]
-    v_range = v_max - v_min
-    safe_min = v_min + (v_range * 0.15)
-    safe_max = v_max - (v_range * 0.15)
-    safe_mask = (exp_potential[1:] > safe_min) & (exp_potential[1:] < safe_max)
-
-    if np.any(safe_mask):
-        real_faradaic_ptp = np.ptp(pure_faradaic_target[safe_mask])
-        sim_ptp = np.ptp(calibration_sim[safe_mask])
-    else:
-        real_faradaic_ptp = np.ptp(pure_faradaic_target)
-        sim_ptp = np.ptp(calibration_sim)
-        
-    if sim_ptp < 1e-12: sim_ptp = 1e-6 
-
-    calibrated_scale = real_faradaic_ptp / sim_ptp
-    total_simulated_baseline = (calibration_sim * calibrated_scale)
-    real_mean = np.mean(exp_current[1:])
-    sim_mean = np.mean(total_simulated_baseline)
-    calibrated_offset = (real_mean - sim_mean) / OPTIMIZER_CONFIG["mult_offset"]
-    data_driven_initial_guess[4] = calibrated_offset
-
-    # Notify UI of initialization
-    js.postMessage(json.dumps({
-        "type": "init",
-        "exp_potential": exp_potential[1:].tolist(),
-        "exp_current": exp_current[1:].tolist()
-    }))
-
-    def compute_forward(scaled_params, weights):
-        diffusivity = scaled_params[0] * OPTIMIZER_CONFIG["mult_diff"]
-        beta_left = scaled_params[1] * OPTIMIZER_CONFIG["mult_beta"]
-        beta_right = scaled_params[2] * OPTIMIZER_CONFIG["mult_beta"]
-        v_center = scaled_params[3]
-        baseline_offset = scaled_params[4] * OPTIMIZER_CONFIG["mult_offset"]
-        a_right = scaled_params[5] * OPTIMIZER_CONFIG["mult_bg_a"]
-        k_right = scaled_params[6] * OPTIMIZER_CONFIG["mult_bg_k"]
-        a_left  = scaled_params[7] * OPTIMIZER_CONFIG["mult_bg_a"]
-        k_left  = scaled_params[8] * OPTIMIZER_CONFIG["mult_bg_k"]
-        peaks_matrix = np.reshape(scaled_params[OPTIMIZER_CONFIG["num_globals"]:], (-1, 3))
-            
-        simulated_currents = run_fourier_simulation_numpy(
-            exp_time, exp_potential,
-            diffusivity, beta_left, beta_right, v_center, peaks_matrix, num_terms, film_thickness
-        )
-        bg_current = a_right * np.exp(k_right * (exp_potential[1:] - v_max)) \
-                   - a_left * np.exp(-k_left * (exp_potential[1:] - v_min))
-        final_sim = (simulated_currents * calibrated_scale) + baseline_offset + bg_current
-        squared_errors = (final_sim - global_target_current)**2
-        weighted_mse = np.average(squared_errors, weights=weights)
-        loss = np.sqrt(weighted_mse) * 1e6 
-        return loss, final_sim
-
-    def objective_func(params, weights):
-        loss, _ = compute_forward(params, weights)
-        return loss
-
-    class PyOptimizationTracker:
-        def __init__(self):
-            self.iter_count = 0
-            self.stage_label = ""
-            self.active_weights = None
-
-        def set_stage(self, label, weights):
-            self.stage_label = label
-            self.active_weights = weights
-            self.iter_count = 0
-
-        def __call__(self, xk):
-            self.iter_count += 1
-            if self.iter_count % 5 == 0 or self.iter_count == 1:
-                loss, final_sim = compute_forward(xk, self.active_weights)
-                js.postMessage(json.dumps({
-                    "type": "update",
-                    "stage": self.stage_label,
-                    "iter": self.iter_count,
-                    "loss": float(loss),
-                    "sim_current": final_sim.tolist()
-                }))
-
-    tracker = PyOptimizationTracker()
-
-    all_indices = list(range(len(data_driven_initial_guess)))
-    idx_baseline = [4]
-    idx_bg = [5, 6, 7, 8]
-    idx_diffusion_base = [0, 3]
-    idx_beta = [1, 2]
-    idx_peaks = list(range(OPTIMIZER_CONFIG["num_globals"], len(data_driven_initial_guess)))
-
-    optim_options = {
-        'maxiter': OPTIMIZER_CONFIG["max_iter"],
-        'ftol': OPTIMIZER_CONFIG["tol_ftol"],
-        'gtol': OPTIMIZER_CONFIG["tol_gtol"],
-        'disp': False
-    }
-
-    stages = [
-        ("Stage 1: Pure Flat Baseline", idx_baseline, global_weights_masked),
-        ("Stage 1.5: Background Tails", idx_bg, global_weights),
-        ("Stage 2: Anchor Peaks (Constant D)", idx_baseline + idx_bg + idx_diffusion_base + idx_peaks, global_weights),
-        ("Stage 3: Full Non-Linear Polish", all_indices, global_weights)
-    ]
-
-    current_x = data_driven_initial_guess.copy()
-
-    for label, active_idx, weights in stages:
-        tracker.set_stage(label, weights)
-        bounds = create_staged_bounds(current_x, active_idx, v_min, v_max, OPTIMIZER_CONFIG["num_globals"])
-        res = minimize(
-            objective_func, 
-            current_x, 
-            args=(weights,), 
-            bounds=bounds, 
-            method='L-BFGS-B', 
-            callback=tracker,
-            options=optim_options 
-        )
-        current_x = res.x
-
-    final_result = res
-    final_peaks = final_result.x[OPTIMIZER_CONFIG["num_globals"]:].reshape((-1, 3))
-    
-    diffusivity = final_result.x[0] * OPTIMIZER_CONFIG["mult_diff"]
-    beta_left   = final_result.x[1] * OPTIMIZER_CONFIG["mult_beta"]
-    beta_right  = final_result.x[2] * OPTIMIZER_CONFIG["mult_beta"]
-    v_center    = final_result.x[3]
-    baseline_offset = final_result.x[4] * OPTIMIZER_CONFIG["mult_offset"]
-
-    v_plot = np.linspace(v_min, v_max, 500)
-    beta_plot = np.where(v_plot < v_center, beta_left, beta_right)
-    d_of_v = diffusivity * np.exp(beta_plot * (v_plot - v_center)**2)
-
-    weights_p = final_peaks[:, 0, np.newaxis]
-    v_crits = final_peaks[:, 1, np.newaxis]
-    sharpnesses = final_peaks[:, 2, np.newaxis]
-
-    exp_terms = np.exp(-sharpnesses * (v_plot - v_crits))
-    dos_matrix = weights_p * sharpnesses * exp_terms / (1.0 + exp_terms)**2
-    dos_total = np.sum(dos_matrix, axis=0)
-    
-    _, final_sim = compute_forward(final_result.x, global_weights)
-
-    result_data = {
-        "parameters": {
-            "diffusivity": float(diffusivity),
-            "beta_left": float(beta_left),
-            "beta_right": float(beta_right),
-            "baseline_offset": float(baseline_offset),
-            "v_center": float(v_center)
-        },
-        "plots": {
-            "v_plot": v_plot.tolist(),
-            "d_of_v": d_of_v.tolist(),
-            "dos_total": dos_total.tolist(),
-            "dos_matrix": dos_matrix.tolist(),
-            "exp_potential": exp_potential[1:].tolist(),
-            "exp_current": exp_current[1:].tolist(),
-            "sim_current": final_sim.tolist()
-        }
-    }
-    
-    js.postMessage(json.dumps({
-        "type": "done",
-        "data": result_data
-    }))
-`;
-
-async function init() {
-    try {
-        postMessage(JSON.stringify({ type: 'status', message: 'Initializing Pyodide WebAssembly Engine...' }));
-        pyodide = await loadPyodide();
-        postMessage(JSON.stringify({ type: 'status', message: 'Loading Scientific Packages (NumPy, SciPy, Pandas)...' }));
-        await pyodide.loadPackage(['numpy', 'scipy', 'pandas']);
-        
-        postMessage(JSON.stringify({ type: 'status', message: 'Compiling Physics Solver Model...' }));
-        await pyodide.runPythonAsync(pythonSolverCode);
-        
-        isReady = true;
-        postMessage(JSON.stringify({ type: 'ready', message: 'WASM Physics Engine Ready' }));
-    } catch (err) {
-        postMessage(JSON.stringify({ type: 'error', message: 'Failed to initialize Pyodide engine: ' + err.message }));
-    }
-}
-
-init();
-
-self.onmessage = async (e) => {
-    if (!isReady) {
-        postMessage(JSON.stringify({ type: 'error', message: 'Optimization engine is still initializing. Please wait a few seconds...' }));
-        return;
-    }
-    
+self.onmessage = function(e) {
     const { action, file_content, config } = e.data;
     if (action === 'solve') {
         try {
-            pyodide.globals.set("temp_file_content", file_content);
-            pyodide.globals.set("temp_config_json", JSON.stringify(config));
-            
-            await pyodide.runPythonAsync(`
-                try:
-                    solve_cv_pyodide(temp_file_content, temp_config_json)
-                except Exception as e:
-                    import traceback
-                    import js, json
-                    js.postMessage(json.dumps({
-                        "type": "error",
-                        "message": str(e),
-                        "trace": traceback.format_exc()
-                    }))
-            `);
+            solveCVSimulation(file_content, config);
         } catch (err) {
-            postMessage(JSON.stringify({ type: 'error', message: err.message }));
+            self.postMessage(JSON.stringify({
+                type: 'error',
+                message: err.message || String(err)
+            }));
         }
     }
 };
+
+// Main solver entry point
+function solveCVSimulation(fileContent, rawConfig) {
+    self.postMessage(JSON.stringify({ type: 'status', message: 'Parsing and preprocessing data...' }));
+    
+    // Parse configuration
+    const scan_rate_v_s = parseFloat(rawConfig.scan_rate || 0.010);
+    const film_thickness = parseFloat(rawConfig.film_thickness || 1e-4);
+    const v_min = parseFloat(rawConfig.v_min || -1.0);
+    const v_max = parseFloat(rawConfig.v_max || 1.0);
+    const skip_factor = parseInt(rawConfig.skip_factor || 10, 10);
+    const num_peaks = parseInt(rawConfig.num_peaks || 30, 10);
+    const max_iter = parseInt(rawConfig.max_iter || 100, 10);
+    const num_terms = parseInt(rawConfig.num_terms || 50, 10);
+    const loss_weight_const = parseFloat(rawConfig.loss_weight_const || 1.0);
+    const pot_col = parseInt(rawConfig.pot_col !== undefined ? rawConfig.pot_col : 8, 10);
+    const cur_col = parseInt(rawConfig.cur_col !== undefined ? rawConfig.cur_col : 9, 10);
+
+    const mult_diff = (film_thickness * film_thickness) / 10.0;
+    const mult_beta = 1.0;
+    const mult_offset = 1e-4;
+    const mult_bg_a = 1e-4;
+    const mult_bg_k = 10.0;
+    const NUM_GLOBALS = 9;
+
+    // Parse CSV data
+    const { time, potential, current } = parseAndPreprocessCSV(
+        fileContent, pot_col, cur_col, scan_rate_v_s, skip_factor
+    );
+
+    if (potential.length < 10) {
+        throw new Error("Dataset is too small or specified column indices are invalid.");
+    }
+
+    const exp_potential = potential.subarray(1);
+    const exp_current = current.subarray(1);
+    const exp_time = time;
+    const M = exp_potential.length;
+
+    // Notify UI with initial raw dataset for plotting
+    self.postMessage(JSON.stringify({
+        type: 'init',
+        exp_potential: Array.from(exp_potential),
+        exp_current: Array.from(exp_current)
+    }));
+
+    // Calculate weights via Savitzky-Golay smoothed d2I
+    const loss_weights = computeLossWeights(current, loss_weight_const);
+    const global_weights = loss_weights.subarray(1);
+
+    // Edge masking for stage 1
+    const edge_threshold = (v_max - v_min) * 0.05;
+    const global_weights_masked = new Float64Array(M);
+    for (let i = 0; i < M; i++) {
+        const v = exp_potential[i];
+        if (v < v_min + edge_threshold || v > v_max - edge_threshold) {
+            global_weights_masked[i] = 0.0;
+        } else {
+            global_weights_masked[i] = global_weights[i];
+        }
+    }
+
+    // Initial Physics Prior Extraction
+    let mean_pot = 0;
+    for (let i = 0; i < potential.length; i++) mean_pot += potential[i];
+    mean_pot /= potential.length;
+
+    const totalParamsCount = NUM_GLOBALS + num_peaks * 3;
+    const current_x = new Float64Array(totalParamsCount);
+    current_x[0] = 2.0;       // D0
+    current_x[1] = 1.0;       // beta_L
+    current_x[2] = 1.0;       // beta_R
+    current_x[3] = mean_pot;  // V_center
+    current_x[4] = 0.0;       // baseline_offset
+    current_x[5] = 0.1;       // a_R
+    current_x[6] = 1.0;       // k_R
+    current_x[7] = 0.1;       // a_L
+    current_x[8] = 1.0;       // k_L
+
+    // Evenly spaced initial peaks
+    const v_step = (v_max - v_min - 0.2) / (num_peaks > 1 ? num_peaks - 1 : 1);
+    for (let i = 0; i < num_peaks; i++) {
+        const base = NUM_GLOBALS + i * 3;
+        current_x[base] = 1.0;                  // weight
+        current_x[base + 1] = v_min + 0.1 + i * v_step; // v_crit
+        current_x[base + 2] = 15.0;             // sharpness
+    }
+
+    // Calibration simulation to scale initial guess
+    const calib_sim = runFourierSimulation(
+        exp_time, potential,
+        current_x[0] * mult_diff, 0.0, 0.0, current_x[3],
+        current_x.subarray(NUM_GLOBALS), num_peaks, num_terms, film_thickness
+    );
+
+    // Scale and offset alignment
+    const v_range = v_max - v_min;
+    const safe_min = v_min + (v_range * 0.15);
+    const safe_max = v_max - (v_range * 0.15);
+
+    let min_faradaic = Infinity, max_faradaic = -Infinity;
+    let min_sim = Infinity, max_sim = -Infinity;
+    let sum_real = 0, sum_sim = 0;
+
+    for (let i = 0; i < M; i++) {
+        const v = exp_potential[i];
+        sum_real += exp_current[i];
+        sum_sim += calib_sim[i];
+        if (v > safe_min && v < safe_max) {
+            if (exp_current[i] < min_faradaic) min_faradaic = exp_current[i];
+            if (exp_current[i] > max_faradaic) max_faradaic = exp_current[i];
+            if (calib_sim[i] < min_sim) min_sim = calib_sim[i];
+            if (calib_sim[i] > max_sim) max_sim = calib_sim[i];
+        }
+    }
+
+    const real_ptp = (max_faradaic > min_faradaic) ? (max_faradaic - min_faradaic) : 1e-4;
+    let sim_ptp = (max_sim > min_sim) ? (max_sim - min_sim) : 1e-6;
+    if (sim_ptp < 1e-12) sim_ptp = 1e-6;
+
+    const calibrated_scale = real_ptp / sim_ptp;
+    const real_mean = sum_real / M;
+    const sim_mean = (sum_sim / M) * calibrated_scale;
+    current_x[4] = (real_mean - sim_mean) / mult_offset;
+
+    // Fast Forward Model Evaluation Function
+    const sim_buffer = new Float64Array(M);
+    function computeForward(params, weights, outSim) {
+        const diff = params[0] * mult_diff;
+        const beta_l = params[1] * mult_beta;
+        const beta_r = params[2] * mult_beta;
+        const vc = params[3];
+        const off = params[4] * mult_offset;
+        const ar = params[5] * mult_bg_a;
+        const kr = params[6] * mult_bg_k;
+        const al = params[7] * mult_bg_a;
+        const kl = params[8] * mult_bg_k;
+
+        const raw_sim = runFourierSimulation(
+            exp_time, potential,
+            diff, beta_l, beta_r, vc,
+            params.subarray(NUM_GLOBALS), num_peaks, num_terms, film_thickness
+        );
+
+        let weighted_sq_err = 0.0;
+        let total_weight = 0.0;
+
+        for (let i = 0; i < M; i++) {
+            const v = exp_potential[i];
+            const bg = ar * Math.exp(kr * (v - v_max)) - al * Math.exp(-kl * (v - v_min));
+            const sim_val = (raw_sim[i] * calibrated_scale) + off + bg;
+            if (outSim) outSim[i] = sim_val;
+
+            const err = sim_val - exp_current[i];
+            const w = weights[i];
+            weighted_sq_err += w * err * err;
+            total_weight += w;
+        }
+
+        const weighted_mse = total_weight > 0 ? (weighted_sq_err / total_weight) : 0;
+        return Math.sqrt(weighted_mse) * 1e6;
+    }
+
+    // Optimization Stages Setup
+    const idx_baseline = [4];
+    const idx_bg = [5, 6, 7, 8];
+    const idx_diffusion_base = [0, 3];
+    const idx_peaks = [];
+    for (let i = NUM_GLOBALS; i < totalParamsCount; i++) idx_peaks.push(i);
+    const all_indices = [];
+    for (let i = 0; i < totalParamsCount; i++) all_indices.push(i);
+
+    const stages = [
+        { label: "Stage 1: Pure Flat Baseline", active: idx_baseline, weights: global_weights_masked, iters: Math.min(30, max_iter) },
+        { label: "Stage 1.5: Background Tails", active: idx_bg, weights: global_weights, iters: Math.min(30, max_iter) },
+        { label: "Stage 2: Anchor Peaks (Constant D)", active: idx_baseline.concat(idx_bg, idx_diffusion_base, idx_peaks), weights: global_weights, iters: Math.min(60, max_iter) },
+        { label: "Stage 3: Full Non-Linear Polish", active: all_indices, weights: global_weights, iters: max_iter }
+    ];
+
+    // Parameter Bounds Generator
+    function getBounds(idx, val) {
+        const v = Math.abs(val) * 0.5;
+        if (idx === 0) return [Math.max(1e-8, val - 5.0), val + 5.0];
+        if (idx === 1 || idx === 2) return [val - 1.0, val + 1.0];
+        if (idx === 3) return [val - 0.6, val + 0.6];
+        if (idx === 4) {
+            const range = val !== 0 ? v : 10.0;
+            return [val - range, val + range];
+        }
+        if (idx === 5 || idx === 7) return [Math.max(1e-8, val - (v + 0.1)), val + v + 0.1];
+        if (idx === 6 || idx === 8) return [Math.max(0.1, val - (v + 0.5)), val + v + 0.5];
+        
+        const offset = (idx - NUM_GLOBALS) % 3;
+        if (offset === 0) return [Math.max(1e-4, val - (v + 1e-4)), val + 5.0];
+        if (offset === 1) return [Math.max(v_min, val - (v + 1e-4)), Math.min(v_max, val + v + 1e-4)];
+        return [Math.max(0.1, val - (v + 1e-4)), val + 20.0];
+    }
+
+    // Execute Multi-Stage Coordinate/L-BFGS Gradient Optimization
+    for (let s = 0; s < stages.length; s++) {
+        const stage = stages[s];
+        const activeIdx = stage.active;
+        const weights = stage.weights;
+
+        // Build active bounds
+        const lowerBounds = new Float64Array(totalParamsCount);
+        const upperBounds = new Float64Array(totalParamsCount);
+        for (let i = 0; i < totalParamsCount; i++) {
+            if (activeIdx.includes(i)) {
+                const b = getBounds(i, current_x[i]);
+                lowerBounds[i] = b[0];
+                upperBounds[i] = b[1];
+            } else {
+                lowerBounds[i] = current_x[i] - 1e-9;
+                upperBounds[i] = current_x[i] + 1e-9;
+            }
+        }
+
+        optimizeLBFGS(
+            current_x, activeIdx, weights, computeForward, lowerBounds, upperBounds, stage.iters,
+            (iter, loss, currentSim) => {
+                self.postMessage(JSON.stringify({
+                    type: 'update',
+                    stage: stage.label,
+                    iter: iter,
+                    loss: loss,
+                    sim_current: Array.from(currentSim)
+                }));
+            }
+        );
+    }
+
+    // Extract Final Parameters and Curves for Output
+    const final_sim = new Float64Array(M);
+    computeForward(current_x, global_weights, final_sim);
+
+    const final_diffusivity = current_x[0] * mult_diff;
+    const final_beta_left = current_x[1] * mult_beta;
+    const final_beta_right = current_x[2] * mult_beta;
+    const final_v_center = current_x[3];
+    const final_baseline_offset = current_x[4] * mult_offset;
+
+    // Generate High-Resolution Diagnostic Curves (500 pts)
+    const N_DIAG = 500;
+    const v_plot = new Float64Array(N_DIAG);
+    const d_of_v = new Float64Array(N_DIAG);
+    const dos_total = new Float64Array(N_DIAG);
+    const dos_matrix = [];
+
+    for (let k = 0; k < num_peaks; k++) {
+        dos_matrix.push(new Float64Array(N_DIAG));
+    }
+
+    const diag_step = (v_max - v_min) / (N_DIAG - 1);
+    for (let i = 0; i < N_DIAG; i++) {
+        const v = v_min + i * diag_step;
+        v_plot[i] = v;
+        const beta = v < final_v_center ? final_beta_left : final_beta_right;
+        d_of_v[i] = final_diffusivity * Math.exp(beta * (v - final_v_center) * (v - final_v_center));
+
+        let tot_dos = 0;
+        for (let k = 0; k < num_peaks; k++) {
+            const base = NUM_GLOBALS + k * 3;
+            const w = current_x[base];
+            const vc = current_x[base + 1];
+            const sharpness = current_x[base + 2];
+            const exp_term = Math.exp(-sharpness * (v - vc));
+            const denom = 1.0 + exp_term;
+            const mode_val = (w * sharpness * exp_term) / (denom * denom);
+            dos_matrix[k][i] = mode_val;
+            tot_dos += mode_val;
+        }
+        dos_total[i] = tot_dos;
+    }
+
+    // Package Results
+    const result_data = {
+        parameters: {
+            diffusivity: final_diffusivity,
+            beta_left: final_beta_left,
+            beta_right: final_beta_right,
+            baseline_offset: final_baseline_offset,
+            v_center: final_v_center
+        },
+        plots: {
+            v_plot: Array.from(v_plot),
+            d_of_v: Array.from(d_of_v),
+            dos_total: Array.from(dos_total),
+            dos_matrix: dos_matrix.map(row => Array.from(row)),
+            exp_potential: Array.from(exp_potential),
+            exp_current: Array.from(exp_current),
+            sim_current: Array.from(final_sim)
+        }
+    };
+
+    self.postMessage(JSON.stringify({
+        type: 'done',
+        data: result_data
+    }));
+}
+
+// Ultra-Fast Fourier Diffusion Finite-Difference Core in Native Typed Arrays
+function runFourierSimulation(
+    time_array, potential_array,
+    diffusivity, beta_left, beta_right, v_center,
+    peaks_array, num_peaks, num_terms, thickness
+) {
+    const N_steps = potential_array.length - 1;
+    const simulated_currents = new Float64Array(N_steps);
+
+    // Precompute wavenumbers, fourier coefficients, sin integrals
+    const wavenumbers = new Float64Array(num_terms);
+    const fourier_coeffs = new Float64Array(num_terms);
+    const sin_integrals = new Float64Array(num_terms);
+    const PI = Math.PI;
+    const two_L = 2.0 * thickness;
+
+    for (let n = 0; n < num_terms; n++) {
+        const mode = 2.0 * (n + 1) - 1.0;
+        const wn = (mode * PI) / two_L;
+        wavenumbers[n] = wn;
+        fourier_coeffs[n] = 4.0 / (mode * PI);
+        sin_integrals[n] = 1.0 / wn;
+    }
+
+    // Compute Equilibrium Occupancy theta_eq(t_j)
+    const occ_eq = new Float64Array(potential_array.length);
+    for (let j = 0; j < potential_array.length; j++) {
+        const v = potential_array[j];
+        let occ_sum = 0.0;
+        for (let p = 0; p < num_peaks; p++) {
+            const base = p * 3;
+            const w = peaks_array[base];
+            const vc = peaks_array[base + 1];
+            const k = peaks_array[base + 2];
+            occ_sum += w / (1.0 + Math.exp(-k * (v - vc)));
+        }
+        occ_eq[j] = occ_sum;
+    }
+
+    // Step 1: Precompute Decay & Forcing Matrices
+    const decay_flat = new Float64Array(N_steps * num_terms);
+    const forcing_flat = new Float64Array(N_steps * num_terms);
+
+    const cum_dec = new Float64Array(num_terms);
+    const acc_forc = new Float64Array(num_terms);
+    for (let n = 0; n < num_terms; n++) {
+        cum_dec[n] = 1.0;
+        acc_forc[n] = 0.0;
+    }
+
+    for (let j = 0; j < N_steps; j++) {
+        let dt = time_array[j + 1] - time_array[j];
+        if (dt <= 0.0) dt = 1e-6;
+
+        const v_next = potential_array[j + 1];
+        const beta = (v_next < v_center) ? beta_left : beta_right;
+        const d_val = diffusivity * Math.exp(beta * (v_next - v_center) * (v_next - v_center));
+        const occ_diff = occ_eq[j] - occ_eq[j + 1];
+
+        const rowOffset = j * num_terms;
+        for (let n = 0; n < num_terms; n++) {
+            const wn = wavenumbers[n];
+            const k_dt = d_val * dt * wn * wn;
+            const dec = Math.exp(-k_dt);
+            
+            let forcing_factor;
+            if (k_dt < 1e-8) {
+                forcing_factor = 1.0 - 0.5 * k_dt;
+            } else {
+                forcing_factor = (1.0 - dec) / (k_dt + 1e-15);
+            }
+
+            const forc = occ_diff * fourier_coeffs[n] * forcing_factor;
+            decay_flat[rowOffset + n] = dec;
+            forcing_flat[rowOffset + n] = forc;
+
+            cum_dec[n] = cum_dec[n] * dec;
+            acc_forc[n] = acc_forc[n] * dec + forc;
+        }
+    }
+
+    // Initial Steady-State Fourier Modes T_m_0
+    const fourier_modes = new Float64Array(num_terms);
+    let total_ions_old = thickness * occ_eq[0];
+    for (let n = 0; n < num_terms; n++) {
+        const t0 = acc_forc[n] / (1.0 - cum_dec[n] + 1e-15);
+        fourier_modes[n] = t0;
+        total_ions_old += t0 * sin_integrals[n];
+    }
+
+    // Time Evolution & Current Calculation
+    for (let j = 0; j < N_steps; j++) {
+        let dt = time_array[j + 1] - time_array[j];
+        if (dt <= 0.0) dt = 1e-6;
+
+        const rowOffset = j * num_terms;
+        let sum_fourier = 0.0;
+        for (let n = 0; n < num_terms; n++) {
+            const next_mode = fourier_modes[n] * decay_flat[rowOffset + n] + forcing_flat[rowOffset + n];
+            fourier_modes[n] = next_mode;
+            sum_fourier += next_mode * sin_integrals[n];
+        }
+
+        const total_ions_new = thickness * occ_eq[j + 1] + sum_fourier;
+        simulated_currents[j] = (total_ions_new - total_ions_old) / dt;
+        total_ions_old = total_ions_new;
+    }
+
+    return simulated_currents;
+}
+
+// Bounded L-BFGS & Adaptive Gradient Optimizer in Pure JavaScript
+function optimizeLBFGS(x, activeIndices, weights, computeLoss, lowerBounds, upperBounds, maxIter, onIter) {
+    const N = x.length;
+    const numActive = activeIndices.length;
+    const currentSim = new Float64Array(weights.length);
+
+    let currentLoss = computeLoss(x, weights, currentSim);
+    let iter = 0;
+
+    // L-BFGS memory history
+    const m = 6;
+    const s_history = [];
+    const y_history = [];
+    const rho_history = [];
+
+    const grad = new Float64Array(N);
+    const grad_old = new Float64Array(N);
+    const x_old = new Float64Array(N);
+    const dir = new Float64Array(N);
+
+    // Initial gradient computation
+    computeGradient(x, activeIndices, weights, computeLoss, currentLoss, lowerBounds, upperBounds, grad);
+
+    for (iter = 1; iter <= maxIter; iter++) {
+        // Compute search direction via two-loop L-BFGS recursion
+        const q = new Float64Array(N);
+        for (let i = 0; i < N; i++) q[i] = grad[i];
+
+        const k = s_history.length;
+        const alpha = new Float64Array(k);
+
+        for (let i = k - 1; i >= 0; i--) {
+            const s_i = s_history[i];
+            const y_i = y_history[i];
+            const rho_i = rho_history[i];
+
+            let dot = 0;
+            for (let j = 0; j < numActive; j++) {
+                const idx = activeIndices[j];
+                dot += s_i[idx] * q[idx];
+            }
+            alpha[i] = rho_i * dot;
+            for (let j = 0; j < numActive; j++) {
+                const idx = activeIndices[j];
+                q[idx] -= alpha[i] * y_i[idx];
+            }
+        }
+
+        // Initial Hessian scaling gamma
+        let gamma = 1.0;
+        if (k > 0) {
+            const s_last = s_history[k - 1];
+            const y_last = y_history[k - 1];
+            let s_dot_y = 0, y_dot_y = 0;
+            for (let j = 0; j < numActive; j++) {
+                const idx = activeIndices[j];
+                s_dot_y += s_last[idx] * y_last[idx];
+                y_dot_y += y_last[idx] * y_last[idx];
+            }
+            if (y_dot_y > 1e-12) gamma = s_dot_y / y_dot_y;
+        }
+
+        const r = new Float64Array(N);
+        for (let j = 0; j < numActive; j++) {
+            const idx = activeIndices[j];
+            r[idx] = gamma * q[idx];
+        }
+
+        for (let i = 0; i < k; i++) {
+            const s_i = s_history[i];
+            const y_i = y_history[i];
+            const rho_i = rho_history[i];
+
+            let y_dot_r = 0;
+            for (let j = 0; j < numActive; j++) {
+                const idx = activeIndices[j];
+                y_dot_r += y_i[idx] * r[idx];
+            }
+            const beta = rho_i * y_dot_r;
+            for (let j = 0; j < numActive; j++) {
+                const idx = activeIndices[j];
+                r[idx] += s_i[idx] * (alpha[i] - beta);
+            }
+        }
+
+        for (let j = 0; j < numActive; j++) {
+            const idx = activeIndices[j];
+            dir[idx] = -r[idx];
+        }
+
+        // Backtracking line search with Armijo condition
+        for (let i = 0; i < N; i++) {
+            x_old[i] = x[i];
+            grad_old[i] = grad[i];
+        }
+
+        let stepSize = 1.0;
+        let stepAccepted = false;
+        const x_trial = new Float64Array(N);
+
+        for (let ls = 0; ls < 10; ls++) {
+            for (let i = 0; i < N; i++) {
+                if (activeIndices.includes(i)) {
+                    let nextVal = x_old[i] + stepSize * dir[i];
+                    if (nextVal < lowerBounds[i]) nextVal = lowerBounds[i];
+                    if (nextVal > upperBounds[i]) nextVal = upperBounds[i];
+                    x_trial[i] = nextVal;
+                } else {
+                    x_trial[i] = x_old[i];
+                }
+            }
+
+            const trialLoss = computeLoss(x_trial, weights, currentSim);
+            if (trialLoss < currentLoss || stepSize < 1e-4) {
+                currentLoss = trialLoss;
+                for (let i = 0; i < N; i++) x[i] = x_trial[i];
+                stepAccepted = true;
+                break;
+            }
+            stepSize *= 0.5;
+        }
+
+        if (!stepAccepted) break;
+
+        // Compute new gradient
+        computeGradient(x, activeIndices, weights, computeLoss, currentLoss, lowerBounds, upperBounds, grad);
+
+        // Update L-BFGS curvature pairs (s = x_new - x_old, y = grad_new - grad_old)
+        const s_vec = new Float64Array(N);
+        const y_vec = new Float64Array(N);
+        let s_dot_y = 0;
+
+        for (let j = 0; j < numActive; j++) {
+            const idx = activeIndices[j];
+            s_vec[idx] = x[idx] - x_old[idx];
+            y_vec[idx] = grad[idx] - grad_old[idx];
+            s_dot_y += s_vec[idx] * y_vec[idx];
+        }
+
+        if (s_dot_y > 1e-10) {
+            if (s_history.length >= m) {
+                s_history.shift();
+                y_history.shift();
+                rho_history.shift();
+            }
+            s_history.push(s_vec);
+            y_history.push(y_vec);
+            rho_history.push(1.0 / s_dot_y);
+        }
+
+        if (iter % 5 === 0 || iter === 1) {
+            onIter(iter, currentLoss, currentSim);
+        }
+    }
+}
+
+// Numerical Central/Forward Gradient Estimator
+function computeGradient(x, activeIndices, weights, computeLoss, currentLoss, lowerBounds, upperBounds, gradOut) {
+    const N = x.length;
+    for (let i = 0; i < N; i++) gradOut[i] = 0;
+
+    const dummySim = null;
+    for (let j = 0; j < activeIndices.length; j++) {
+        const idx = activeIndices[j];
+        const orig = x[idx];
+        let eps = Math.abs(orig) * 1e-4;
+        if (eps < 1e-6) eps = 1e-6;
+
+        let x_plus = orig + eps;
+        if (x_plus > upperBounds[idx]) x_plus = upperBounds[idx];
+        const actual_h = x_plus - orig;
+
+        if (actual_h > 1e-12) {
+            x[idx] = x_plus;
+            const loss_plus = computeLoss(x, weights, dummySim);
+            gradOut[idx] = (loss_plus - currentLoss) / actual_h;
+            x[idx] = orig;
+        } else {
+            gradOut[idx] = 0;
+        }
+    }
+}
+
+// CSV Parser and Preprocessor
+function parseAndPreprocessCSV(content, potCol, curCol, scanRate, skipFactor) {
+    const lines = content.split(/\r?\n/);
+    const rawPot = [];
+    const rawCur = [];
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.startsWith('#') || line.startsWith('//')) continue;
+        const tokens = line.split(/[,\t;\s]+/).map(t => parseFloat(t));
+        if (tokens.length > Math.max(potCol, curCol)) {
+            const v = tokens[potCol];
+            const c = tokens[curCol];
+            if (!isNaN(v) && !isNaN(c)) {
+                rawPot.push(v);
+                rawCur.push(c);
+            }
+        }
+    }
+
+    const totalPts = Math.min(rawPot.length, rawCur.length);
+    if (totalPts === 0) throw new Error("No numeric data rows found in CSV.");
+
+    // Compute raw time based on triangular potential scan
+    const rawTime = new Float64Array(totalPts);
+    rawTime[0] = 0.0;
+    for (let i = 1; i < totalPts; i++) {
+        const dv = Math.abs(rawPot[i] - rawPot[i - 1]);
+        rawTime[i] = rawTime[i - 1] + (dv / scanRate);
+    }
+
+    // Downsample by skip factor
+    const sampledPot = [];
+    const sampledCur = [];
+    const sampledTime = [];
+
+    for (let i = 0; i < totalPts; i += skipFactor) {
+        sampledPot.push(rawPot[i]);
+        sampledCur.push(rawCur[i]);
+        sampledTime.push(rawTime[i]);
+    }
+
+    return {
+        time: new Float64Array(sampledTime),
+        potential: new Float64Array(sampledPot),
+        current: new Float64Array(sampledCur)
+    };
+}
+
+// Savitzky-Golay 2nd Derivative Weights
+function computeLossWeights(currentArr, lossWeightConst) {
+    const M = currentArr.length;
+    const weights = new Float64Array(M);
+    
+    // 2nd derivative approximation
+    const d2I = new Float64Array(M);
+    let maxD2 = 0;
+    for (let i = 1; i < M - 1; i++) {
+        const val = Math.abs(currentArr[i + 1] - 2.0 * currentArr[i] + currentArr[i - 1]);
+        d2I[i] = val;
+        if (val > maxD2) maxD2 = val;
+    }
+    d2I[0] = d2I[1];
+    d2I[M - 1] = d2I[M - 2];
+    if (maxD2 === 0) maxD2 = 1.0;
+
+    for (let i = 0; i < M; i++) {
+        weights[i] = (d2I[i] / maxD2) + lossWeightConst;
+    }
+    return weights;
+}

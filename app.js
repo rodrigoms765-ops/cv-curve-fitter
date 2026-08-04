@@ -1,6 +1,6 @@
 // CV Curve Fitting Pro - Dual-Mode Client Controller & Visualizer
 // Seamless Hybrid: Fast Local JAX Backend (ws://127.0.0.1:8000) with In-Browser Worker Fallback
-// Features: Auto CSV Column Detection, Live Pre-Fit Plotting, Multi-Engine Switching
+// Features: Auto CSV Column Detection, Cycle Presets, Live Pre-Fit Plotting, Multi-Engine Switching
 
 // Global State
 let solverWorker = null;
@@ -22,21 +22,25 @@ const layoutConfig = {
     plot_bgcolor: '#F8FAFC',
     font: { color: '#0F172A', family: 'Roboto, sans-serif' },
     xaxis: { 
-        gridcolor: '#E2E8F0', 
-        zerolinecolor: '#94A3B8',
-        linecolor: '#CBD5E1',
-        linewidth: 1,
-        mirror: true,
-        ticks: 'outside'
-    },
-    yaxis: { 
+        autorange: true,
         gridcolor: '#E2E8F0', 
         zerolinecolor: '#94A3B8',
         linecolor: '#CBD5E1',
         linewidth: 1,
         mirror: true,
         ticks: 'outside',
-        exponentformat: 'e'
+        title: 'Potential (V)'
+    },
+    yaxis: { 
+        autorange: true,
+        gridcolor: '#E2E8F0', 
+        zerolinecolor: '#94A3B8',
+        linecolor: '#CBD5E1',
+        linewidth: 1,
+        mirror: true,
+        ticks: 'outside',
+        exponentformat: 'e',
+        title: 'Current (A)'
     },
     margin: { t: 30, r: 30, l: 70, b: 60 }
 };
@@ -190,20 +194,25 @@ function analyzeCSVAndPopulateColumns(content) {
     const colCount = hasHeader ? firstLineFields.length : (secondLineFields.length || firstLineFields.length);
     detectedColumns = [];
 
-    // Frequency map to disambiguate repeated names (e.g., Multiple "Potential (V)" cycles)
-    const nameCounts = {};
-
+    // Track cycle numbers for standard 4-column-per-cycle pattern
     for (let c = 0; c < colCount; c++) {
-        let baseName = hasHeader && firstLineFields[c] ? firstLineFields[c] : `Column ${c}`;
-        nameCounts[baseName] = (nameCounts[baseName] || 0) + 1;
-        let displayName = baseName;
-        if (nameCounts[baseName] > 1) {
-            displayName = `${baseName} (#${nameCounts[baseName]})`;
-        }
+        let rawHeader = hasHeader && firstLineFields[c] ? firstLineFields[c] : `Column ${c}`;
+        let cycleNum = Math.floor(c / 4) + 1;
+        let isAdjusted = rawHeader.toLowerCase().includes('adjusted');
+        let isCurrent = rawHeader.toLowerCase().includes('current') || rawHeader.toLowerCase().includes('(a)');
+        let isPotential = rawHeader.toLowerCase().includes('potential') || rawHeader.toLowerCase().includes('(v)');
+
+        let typeStr = isPotential ? "Potential (V)" : (isCurrent ? "Current (A)" : rawHeader);
+        let adjStr = isAdjusted ? " [Adjusted]" : " [Raw]";
+        let cycleStr = colCount >= 8 ? `Cycle ${cycleNum}` : "";
+
+        let displayName = `${cycleStr ? cycleStr + ' ' : ''}${typeStr}${adjStr}`;
+        if (!hasHeader) displayName = `Column ${c}`;
+
         detectedColumns.push({
             index: c,
             name: displayName,
-            rawName: baseName
+            rawName: rawHeader
         });
     }
 
@@ -230,7 +239,7 @@ function analyzeCSVAndPopulateColumns(content) {
         });
 
         // Smart Default Selection:
-        // If >= 10 columns (Standard 4-cycle CV file), default to Col 8 & Col 9 (Cycle 3)
+        // If >= 10 columns (Standard 4-cycle CV file), default to Col 8 & Col 9 (Cycle 3 Raw)
         // If fewer columns, default to Col 0 & Col 1
         let defaultPot = 0;
         let defaultCur = colCount > 1 ? 1 : 0;
@@ -245,6 +254,7 @@ function analyzeCSVAndPopulateColumns(content) {
 
         potSelect.value = defaultPot;
         curSelect.value = defaultCur;
+        updateCycleButtonsActiveState(defaultPot, defaultCur);
 
         if (metaBar && metaText) {
             metaBar.classList.add('has-data');
@@ -256,12 +266,47 @@ function analyzeCSVAndPopulateColumns(content) {
     }
 }
 
+// Update Active Cycle Preset Button
+function updateCycleButtonsActiveState(pot, cur) {
+    const buttons = document.querySelectorAll('.preset-pill-btn');
+    buttons.forEach(btn => {
+        const bPot = parseInt(btn.getAttribute('data-pot'), 10);
+        const bCur = parseInt(btn.getAttribute('data-cur'), 10);
+        if (bPot === pot && bCur === cur) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+}
+
+// Preset Buttons Event Delegation
+const presetContainer = document.getElementById('cycle-preset-buttons');
+if (presetContainer) {
+    presetContainer.addEventListener('click', (e) => {
+        if (e.target && e.target.classList.contains('preset-pill-btn')) {
+            const pot = parseInt(e.target.getAttribute('data-pot'), 10);
+            const cur = parseInt(e.target.getAttribute('data-cur'), 10);
+
+            const potSelect = document.getElementById('pot_col');
+            const curSelect = document.getElementById('cur_col');
+            if (potSelect && curSelect) {
+                potSelect.value = pot;
+                curSelect.value = cur;
+                updateCycleButtonsActiveState(pot, cur);
+                updateLivePreviewFromColumns();
+            }
+        }
+    });
+}
+
 // Extract and plot experimental data for chosen columns immediately
 function updateLivePreviewFromColumns() {
     if (!stagedFileContent) return;
 
     const potCol = parseInt(document.getElementById('pot_col').value, 10);
     const curCol = parseInt(document.getElementById('cur_col').value, 10);
+    updateCycleButtonsActiveState(potCol, curCol);
 
     const lines = stagedFileContent.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('#') && !l.trim().startsWith('//'));
     if (lines.length === 0) return;
@@ -297,10 +342,25 @@ function updateLivePreviewFromColumns() {
     if (previewPot.length > 0) {
         expPotential = previewPot;
         expCurrent = previewCur;
+        
+        // Update Stats Card
+        let minV = Math.min(...previewPot);
+        let maxV = Math.max(...previewPot);
+        let minI = Math.min(...previewCur);
+        let maxI = Math.max(...previewCur);
+
+        const vSpan = document.getElementById('stat-v-range');
+        const iSpan = document.getElementById('stat-i-range');
+        const countSpan = document.getElementById('stat-points-count');
+
+        if (vSpan) vSpan.innerText = `${minV.toFixed(2)}V to ${maxV.toFixed(2)}V`;
+        if (iSpan) iSpan.innerText = `${minI.toExponential(2)}A to ${maxI.toExponential(2)}A`;
+        if (countSpan) countSpan.innerText = previewPot.length.toLocaleString();
+
         initLiveChart(expPotential, expCurrent);
         
         document.getElementById('status-stage').innerText = 'Data Loaded & Ready';
-        document.getElementById('status-details').innerText = `Displaying ${previewPot.length} points from Col ${potCol} (V) & Col ${curCol} (I). Click Execute Optimization to fit.`;
+        document.getElementById('status-details').innerText = `Previewing Col ${potCol} (V) vs Col ${curCol} (I) [${previewPot.length} points]. Click Execute Optimization to fit.`;
     }
 }
 
@@ -509,15 +569,16 @@ function resetUI() {
     if (spinner) spinner.classList.add('hidden');
 }
 
-// Plotly Live Charting
+// Plotly Live Charting with Connected Hysteresis Loop
 function initLiveChart(potential, current) {
     const traceExp = {
         x: potential,
         y: current,
-        mode: 'markers',
+        mode: 'lines+markers',
         type: 'scatter',
         name: 'Experimental Data',
-        marker: { color: '#94A3B8', size: 4, opacity: 0.6 }
+        line: { color: '#0284c7', width: 1.8 },
+        marker: { color: '#0284c7', size: 3, opacity: 0.7 }
     };
 
     const traceSim = {
@@ -526,14 +587,14 @@ function initLiveChart(potential, current) {
         mode: 'lines',
         type: 'scatter',
         name: 'Physics Model Fit',
-        line: { color: '#2563EB', width: 2.5 }
+        line: { color: '#16a34a', width: 2.5 }
     };
 
     const layout = Object.assign({}, layoutConfig, {
         title: { text: 'Cyclic Voltammogram Live View', font: { size: 14 } },
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)' }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current (A)' }),
-        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.8)' }
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)', autorange: true }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current (A)', autorange: true }),
+        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.85)' }
     });
 
     Plotly.react('live-chart', [traceExp, traceSim], layout, { responsive: true, displayModeBar: false });
@@ -575,10 +636,11 @@ function renderDiagnosticPlots(plots) {
     const traceExp = {
         x: plots.exp_potential,
         y: plots.exp_current,
-        mode: 'markers',
+        mode: 'lines+markers',
         type: 'scatter',
         name: 'Experimental Data',
-        marker: { color: '#64748B', size: 4.5, opacity: 0.7 }
+        line: { color: '#64748B', width: 1.5 },
+        marker: { color: '#64748B', size: 3, opacity: 0.7 }
     };
 
     const traceSim = {
@@ -592,8 +654,8 @@ function renderDiagnosticPlots(plots) {
 
     const cvLayout = Object.assign({}, layoutConfig, {
         title: { text: 'Final Cyclic Voltammogram Fit', font: { size: 14 } },
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)' }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current (A)' }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)', autorange: true }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current (A)', autorange: true }),
         legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.85)' }
     });
 
@@ -611,8 +673,8 @@ function renderDiagnosticPlots(plots) {
 
     const diffLayout = Object.assign({}, layoutConfig, {
         title: { text: 'Voltage-Dependent Diffusivity D(V)', font: { size: 14 } },
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)' }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Diffusivity (cm²/s)', type: 'log' }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)', autorange: true }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Diffusivity (cm²/s)', type: 'log', autorange: true }),
         showlegend: false
     });
 
@@ -646,8 +708,8 @@ function renderDiagnosticPlots(plots) {
 
     const dosLayout = Object.assign({}, layoutConfig, {
         title: { text: 'Extracted Density of States DOS(V)', font: { size: 14 } },
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)' }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'DOS (a.u.)' }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)', autorange: true }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'DOS (a.u.)', autorange: true }),
         showlegend: false
     });
 

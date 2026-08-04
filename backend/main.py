@@ -9,7 +9,7 @@ from cv_solver import solve_cv
 import traceback
 import os
 
-app = FastAPI()
+app = FastAPI(title="CV Curve Fitting Pro - JAX Engine")
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,8 +19,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.websocket("/ws/solve")
-async def websocket_endpoint(websocket: WebSocket):
+@app.get("/health")
+@app.get("/api/health")
+def health_check():
+    return {
+        "status": "ok",
+        "engine": "JAX Hardware Accelerated (XLA)",
+        "features": ["Automatic Differentiation", "JIT Parallelized Scan", "L-BFGS-B Multi-stage"]
+    }
+
+async def handle_solver_websocket(websocket: WebSocket):
     await websocket.accept()
     try:
         data = await websocket.receive_json()
@@ -36,10 +44,10 @@ async def websocket_endpoint(websocket: WebSocket):
             "v_max": float(raw_config.get("v_max", 1.0)),
             "skip_factor": int(raw_config.get("skip_factor", 10)),
             "num_peaks": int(raw_config.get("num_peaks", 30)),
-            "max_iter": int(raw_config.get("max_iter", 100)),
+            "max_iter": int(raw_config.get("max_iter", 50)),
             "tol_ftol": float(raw_config.get("tol_ftol", 1e-8)),
             "tol_gtol": float(raw_config.get("tol_gtol", 1e-7)),
-            "num_terms": int(raw_config.get("num_terms", 50)),
+            "num_terms": int(raw_config.get("num_terms", 25)),
             "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0))
         }
         
@@ -71,14 +79,9 @@ async def websocket_endpoint(websocket: WebSocket):
         # Stream updates from queue to websocket
         while True:
             msg = await queue.get()
-            if msg["type"] == "done":
-                await websocket.send_json(msg)
+            await websocket.send_json(msg)
+            if msg["type"] in ("done", "error"):
                 break
-            elif msg["type"] == "error":
-                await websocket.send_json(msg)
-                break
-            else:
-                await websocket.send_json(msg)
                 
     except WebSocketDisconnect:
         print("Client disconnected")
@@ -89,9 +92,18 @@ async def websocket_endpoint(websocket: WebSocket):
         except:
             pass
 
-# Mount frontend files
-frontend_path = os.path.join(os.path.dirname(__file__), '..', 'frontend')
-app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
+@app.websocket("/ws/solve")
+async def websocket_solve(websocket: WebSocket):
+    await handle_solver_websocket(websocket)
+
+@app.websocket("/ws")
+async def websocket_root(websocket: WebSocket):
+    await handle_solver_websocket(websocket)
+
+# Mount frontend files if serving locally
+frontend_path = os.path.join(os.path.dirname(__file__), '..')
+if os.path.exists(os.path.join(frontend_path, 'index.html')):
+    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

@@ -142,6 +142,15 @@ def solve_cv(df, config, pot_col, cur_col, queue, loop):
     exp_potential_jax = jnp.array(exp_potential)
     global_target_current_jax = jnp.array(exp_current[1:].ravel())
 
+    if loop and queue:
+        loop.call_soon_threadsafe(
+            queue.put_nowait, {
+                "type": "init",
+                "exp_potential": exp_potential[1:].tolist(),
+                "exp_current": exp_current[1:].tolist()
+            }
+        )
+
     turn_idx = np.argmax(np.abs(exp_potential - exp_potential[0]))
     if turn_idx < len(exp_potential) * 0.1:
         turn_idx = len(exp_potential) // 2

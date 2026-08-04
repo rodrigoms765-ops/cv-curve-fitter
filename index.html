@@ -17,6 +17,10 @@
                 <span class="brand-subtitle">Physics-Based Optimization Engine</span>
             </div>
             <div class="nav-links">
+                <div class="engine-badge-btn" id="engine-status-badge" title="Click to view backend connection guide">
+                    <span class="status-dot probing" id="engine-dot"></span>
+                    <span class="engine-text" id="engine-label">Probing JAX Engine...</span>
+                </div>
                 <a href="#solver" id="nav-solver-btn" class="active">Solver</a>
                 <a href="#documentation" id="nav-doc-btn">Documentation</a>
             </div>
@@ -126,6 +130,22 @@
                                     </fieldset>
                                 </div>
                             </div>
+
+                            <!-- Compute Engine Selection -->
+                            <fieldset class="form-section backend-section">
+                                <legend>Compute Engine</legend>
+                                <div class="form-group">
+                                    <select id="engine-select" name="engine" class="engine-dropdown">
+                                        <option value="auto" selected>⚡ Auto (Detect High-Speed Local JAX)</option>
+                                        <option value="local">⚡ Local JAX Backend (ws://127.0.0.1:8000)</option>
+                                        <option value="browser">🌐 In-Browser Engine (Client Sandbox)</option>
+                                    </select>
+                                    <div class="engine-help-row">
+                                        <span class="engine-status-msg" id="engine-status-msg">Probing local JAX engine...</span>
+                                        <button type="button" class="btn-text-link" id="backend-help-link">How to start JAX backend?</button>
+                                    </div>
+                                </div>
+                            </fieldset>
 
                             <button type="submit" id="submit-btn" class="btn-primary">Execute Optimization</button>
                         </form>
@@ -244,6 +264,42 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn-primary modal-ok-btn" id="doc-ok-btn">Close Documentation</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Local Backend Connection Modal -->
+    <div class="modal-backdrop hidden" id="backend-modal" role="dialog" aria-modal="true" aria-labelledby="backend-modal-title">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2 id="backend-modal-title">⚡ High-Speed JAX Backend Guide</h2>
+                <button type="button" class="modal-close-btn" id="backend-close-btn" aria-label="Close modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <section class="doc-section">
+                    <h3>Why use the Local JAX Backend?</h3>
+                    <p>When running in your browser, simulations execute in single-threaded JavaScript. Connecting to your local Python environment enables <strong>hardware-accelerated JAX (XLA)</strong> with exact analytical automatic differentiation, reducing optimization time from minutes down to <strong>~2 seconds</strong>.</p>
+                </section>
+
+                <section class="doc-section">
+                    <h3>How to Launch the Local Backend (1-Step)</h3>
+                    <p>In your project folder (<code>C:\Users\rodri\OneDrive\Documents\Chem Project\cv_curve_ui</code>):</p>
+                    <div class="code-snippet-box">
+                        <code>Double-click: <strong>start_backend.bat</strong></code>
+                    </div>
+                    <p>Or run directly in terminal / VS Code:</p>
+                    <div class="code-snippet-box">
+                        <code>python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload</code>
+                    </div>
+                </section>
+
+                <section class="doc-section">
+                    <h3>Instant Auto-Connection</h3>
+                    <p>Once the server starts on port 8000, this webpage will automatically detect it and display a green <span class="badge-tag-online">🟢 ⚡ Local JAX Engine Connected</span> indicator.</p>
+                </section>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-primary modal-ok-btn" id="backend-ok-btn">Got It</button>
             </div>
         </div>
     </div>

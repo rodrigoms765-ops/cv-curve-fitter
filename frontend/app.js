@@ -1,12 +1,17 @@
-// CV Curve Fitting Pro - Client Controller & Visualizer
+// CV Curve Fitting Pro - Dual-Mode Client Controller & Visualizer
+// Seamless Hybrid: Fast Local JAX Backend (ws://127.0.0.1:8000) with In-Browser Worker Fallback
 
 // Global State
 let solverWorker = null;
+let activeSocket = null;
 let expPotential = [];
 let expCurrent = [];
 let latestResults = null;
 let stagedFileContent = null;
 let stagedFileName = "No file chosen";
+let isLocalBackendAvailable = false;
+const BACKEND_URL_HTTP = "http://127.0.0.1:8000/health";
+const BACKEND_URL_WS = "ws://127.0.0.1:8000/ws/solve";
 
 // Plotly Baseline Layout Configuration
 const layoutConfig = {
@@ -33,14 +38,15 @@ const layoutConfig = {
     margin: { t: 30, r: 30, l: 70, b: 60 }
 };
 
-// Initialize Web Worker
+// Initialize In-Browser Web Worker Fallback
 function initWorker() {
+    if (solverWorker) solverWorker.terminate();
     solverWorker = new Worker('solver_worker.js');
     
     solverWorker.onmessage = (e) => {
         try {
-            const msg = JSON.parse(e.data);
-            handleWorkerMessage(msg);
+            const msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+            handleSolverMessage(msg);
         } catch (err) {
             console.error("Worker message parse error:", err);
         }
@@ -49,10 +55,54 @@ function initWorker() {
     solverWorker.onerror = (err) => {
         console.error("Solver worker error:", err);
         document.getElementById('status-stage').innerText = 'Worker Error';
-        document.getElementById('status-details').innerText = 'WebAssembly solver worker encountered an error.';
+        document.getElementById('status-details').innerText = 'In-browser solver encountered an error.';
         resetUI();
     };
 }
+
+// Probe Local JAX Backend
+async function probeLocalBackend() {
+    const dot = document.getElementById('engine-dot');
+    const label = document.getElementById('engine-label');
+    const msg = document.getElementById('engine-status-msg');
+
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 1200);
+        const res = await fetch(BACKEND_URL_HTTP, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+            isLocalBackendAvailable = true;
+            if (dot) {
+                dot.className = 'status-dot online';
+            }
+            if (label) label.innerText = '⚡ Local JAX Active';
+            if (msg) {
+                msg.innerText = '⚡ Local JAX Backend Connected (Port 8000)';
+                msg.className = 'engine-status-msg online';
+            }
+            return true;
+        }
+    } catch (e) {
+        // Backend not reachable
+    }
+
+    isLocalBackendAvailable = false;
+    if (dot) {
+        dot.className = 'status-dot offline';
+    }
+    if (label) label.innerText = '🌐 In-Browser Engine';
+    if (msg) {
+        msg.innerText = 'Local server offline. Using in-browser engine.';
+        msg.className = 'engine-status-msg';
+    }
+    return false;
+}
+
+// Check backend on load and periodically
+probeLocalBackend();
+setInterval(probeLocalBackend, 10000);
 
 // Advanced Settings Accordion Toggle
 const advToggle = document.getElementById('advanced-toggle');
@@ -69,48 +119,61 @@ if (advToggle && advContent) {
     });
 }
 
-// Documentation Modal Controls
+// Documentation & Backend Guide Modals
 const docModal = document.getElementById('doc-modal');
 const navDocBtn = document.getElementById('nav-doc-btn');
 const docCloseBtn = document.getElementById('doc-close-btn');
 const docOkBtn = document.getElementById('doc-ok-btn');
 
-function openDocModal(e) {
-    if (e) e.preventDefault();
-    if (docModal) docModal.classList.remove('hidden');
+const backendModal = document.getElementById('backend-modal');
+const engineBadge = document.getElementById('engine-status-badge');
+const backendHelpLink = document.getElementById('backend-help-link');
+const backendCloseBtn = document.getElementById('backend-close-btn');
+const backendOkBtn = document.getElementById('backend-ok-btn');
+
+function openModal(modal) {
+    if (modal) modal.classList.remove('hidden');
 }
 
-function closeDocModal() {
-    if (docModal) docModal.classList.add('hidden');
+function closeModal(modal) {
+    if (modal) modal.classList.add('hidden');
 }
 
-if (navDocBtn) navDocBtn.addEventListener('click', openDocModal);
-if (docCloseBtn) docCloseBtn.addEventListener('click', closeDocModal);
-if (docOkBtn) docOkBtn.addEventListener('click', closeDocModal);
+if (navDocBtn) navDocBtn.addEventListener('click', (e) => { e.preventDefault(); openModal(docModal); });
+if (docCloseBtn) docCloseBtn.addEventListener('click', () => closeModal(docModal));
+if (docOkBtn) docOkBtn.addEventListener('click', () => closeModal(docModal));
 
-if (docModal) {
-    docModal.addEventListener('click', (e) => {
-        if (e.target === docModal) closeDocModal();
-    });
-}
+if (engineBadge) engineBadge.addEventListener('click', () => openModal(backendModal));
+if (backendHelpLink) backendHelpLink.addEventListener('click', () => openModal(backendModal));
+if (backendCloseBtn) backendCloseBtn.addEventListener('click', () => closeModal(backendModal));
+if (backendOkBtn) backendOkBtn.addEventListener('click', () => closeModal(backendModal));
 
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && docModal && !docModal.classList.contains('hidden')) {
-        closeDocModal();
+[docModal, backendModal].forEach(m => {
+    if (m) {
+        m.addEventListener('click', (e) => {
+            if (e.target === m) closeModal(m);
+        });
     }
 });
 
-// File Upload & Drag-and-Drop Handling
-const dropZone = document.getElementById('drop-zone');
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeModal(docModal);
+        closeModal(backendModal);
+    }
+});
+
+// File Upload & Drag-Drop Handling
 const fileInput = document.getElementById('csv-file');
 const fileNameDisplay = document.getElementById('file-name-display');
+const dropZone = document.getElementById('drop-zone');
 
 function setLoadedFile(content, name) {
     stagedFileContent = content;
     stagedFileName = name;
     if (fileNameDisplay) {
         fileNameDisplay.innerText = name;
-        fileNameDisplay.style.color = '#0F172A';
+        fileNameDisplay.classList.add('has-file');
     }
 }
 
@@ -128,20 +191,19 @@ if (fileInput) {
 }
 
 if (dropZone) {
-    ['dragenter', 'dragover'].forEach(eventName => {
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         dropZone.addEventListener(eventName, (e) => {
             e.preventDefault();
             e.stopPropagation();
-            dropZone.classList.add('dragover');
-        });
+        }, false);
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
     });
 
     ['dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            dropZone.classList.remove('dragover');
-        });
+        dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
     });
 
     dropZone.addEventListener('drop', (e) => {
@@ -157,241 +219,334 @@ if (dropZone) {
     });
 }
 
-}
-
-// Form Submission & Solver Execution
+// Form Submission & Dual-Mode Execution Dispatcher
 const cvForm = document.getElementById('cv-form');
 if (cvForm) {
-    cvForm.addEventListener('submit', (e) => {
+    cvForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         
         if (!stagedFileContent) {
-            alert("Please upload a CSV file or click 'Load Demo Data' first.");
+            alert('Please select a CSV file first.');
             return;
         }
 
         const formData = new FormData(cvForm);
-        const config = Object.fromEntries(formData.entries());
-        delete config.file;
-
-        document.getElementById('submit-btn').disabled = true;
-        document.getElementById('status-panel').classList.remove('hidden');
-        document.getElementById('results-panel').classList.add('hidden');
-        
-        const spinner = document.getElementById('status-spinner');
-        if (spinner) spinner.classList.remove('hidden');
-        
-        document.getElementById('status-stage').innerText = 'Initializing...';
-        document.getElementById('status-details').innerText = 'Setting up optimization problem...';
-        
-        if (!solverWorker) {
-            initWorker();
-        }
-        
-        solverWorker.postMessage({
-            action: 'solve',
-            file_content: stagedFileContent,
-            config: config
+        const config = {};
+        formData.forEach((value, key) => {
+            config[key] = value;
         });
+
+        // Determine execution engine
+        const engineSelection = document.getElementById('engine-select').value;
+        const useLocalBackend = (engineSelection === 'local') || (engineSelection === 'auto' && isLocalBackendAvailable);
+
+        startOptimizationUI();
+
+        if (useLocalBackend) {
+            executeLocalJAXSolver(stagedFileContent, config);
+        } else {
+            executeInBrowserSolver(stagedFileContent, config);
+        }
     });
+}
+
+// Execution via Local JAX WebSocket
+function executeLocalJAXSolver(fileContent, config) {
+    document.getElementById('status-stage').innerText = 'Connecting to Local JAX Backend...';
+    document.getElementById('status-details').innerText = 'Initializing WebSocket on ws://127.0.0.1:8000...';
+
+    if (activeSocket) {
+        activeSocket.close();
+    }
+
+    try {
+        activeSocket = new WebSocket(BACKEND_URL_WS);
+    } catch (err) {
+        console.warn("WebSocket initialization failed, falling back to In-Browser:", err);
+        fallbackToBrowserSolver(fileContent, config, "Could not open WebSocket. Falling back to in-browser engine.");
+        return;
+    }
+
+    activeSocket.onopen = () => {
+        document.getElementById('status-stage').innerText = '⚡ JAX Engine Running';
+        document.getElementById('status-details').innerText = 'Hardware-accelerated XLA optimization in progress...';
+        
+        activeSocket.send(JSON.stringify({
+            action: 'solve',
+            config: config,
+            file_content: fileContent
+        }));
+    };
+
+    activeSocket.onmessage = (event) => {
+        try {
+            const msg = JSON.parse(event.data);
+            handleSolverMessage(msg);
+        } catch (err) {
+            console.error("WebSocket message parse error:", err);
+        }
+    };
+
+    activeSocket.onerror = (err) => {
+        console.warn("WebSocket error:", err);
+        fallbackToBrowserSolver(fileContent, config, "Local JAX server connection failed. Switched to In-Browser solver.");
+    };
+
+    activeSocket.onclose = () => {
+        activeSocket = null;
+    };
+}
+
+// Fallback Helper
+function fallbackToBrowserSolver(fileContent, config, notice) {
+    document.getElementById('status-details').innerText = notice;
+    executeInBrowserSolver(fileContent, config);
+}
+
+// Execution via In-Browser Web Worker
+function executeInBrowserSolver(fileContent, config) {
+    if (!solverWorker) initWorker();
+    
+    document.getElementById('status-stage').innerText = '🌐 In-Browser Solver Running';
+    document.getElementById('status-details').innerText = 'Executing physics diffusion simulation in Web Worker...';
+
+    solverWorker.postMessage({
+        action: 'solve',
+        file_content: fileContent,
+        config: config
+    });
+}
+
+// Universal Message Handler for Solver Messages (both Worker & WebSocket)
+function handleSolverMessage(msg) {
+    if (msg.type === 'init') {
+        expPotential = msg.exp_potential;
+        expCurrent = msg.exp_current;
+        initLiveChart(expPotential, expCurrent);
+    } else if (msg.type === 'status') {
+        document.getElementById('status-details').innerText = msg.message;
+    } else if (msg.type === 'update') {
+        updateLiveChart(msg);
+    } else if (msg.type === 'done') {
+        finishOptimization(msg.data);
+    } else if (msg.type === 'error') {
+        document.getElementById('status-stage').innerText = 'Optimization Failed';
+        document.getElementById('status-details').innerText = msg.message || 'An error occurred during calculation.';
+        resetUI();
+    }
+}
+
+// UI State Management
+function startOptimizationUI() {
+    const submitBtn = document.getElementById('submit-btn');
+    const spinner = document.getElementById('status-spinner');
+    const resultsPanel = document.getElementById('results-panel');
+
+    submitBtn.disabled = true;
+    submitBtn.innerText = 'Optimizing...';
+    if (spinner) spinner.classList.remove('hidden');
+    if (resultsPanel) resultsPanel.classList.add('hidden');
 }
 
 function resetUI() {
     const submitBtn = document.getElementById('submit-btn');
-    if (submitBtn) submitBtn.disabled = false;
     const spinner = document.getElementById('status-spinner');
+
+    submitBtn.disabled = false;
+    submitBtn.innerText = 'Execute Optimization';
     if (spinner) spinner.classList.add('hidden');
 }
 
-// Handle Worker Messages
-function handleWorkerMessage(msg) {
-    if (msg.type === 'status') {
-        document.getElementById('status-details').innerText = msg.message;
-    } else if (msg.type === 'init') {
-        expPotential = msg.exp_potential;
-        expCurrent = msg.exp_current;
-        
-        Plotly.newPlot('live-chart', [
-            {
-                x: expPotential,
-                y: expCurrent,
-                type: 'scatter',
-                mode: 'markers',
-                name: 'Experimental Data',
-                marker: { color: '#64748B', size: 4 }
-            },
-            {
-                x: expPotential,
-                y: new Array(expPotential.length).fill(0),
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Simulated Fit',
-                line: { color: '#334155', width: 2.5 }
-            }
-        ], {
-            ...layoutConfig,
-            xaxis: { 
-                ...layoutConfig.xaxis, 
-                title: 'Potential (V)',
-                range: [Math.min(...expPotential), Math.max(...expPotential)],
-                exponentformat: 'none'
-            },
-            yaxis: { ...layoutConfig.yaxis, title: 'Current (A)' },
-            legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.85)', bordercolor: '#E2E8F0', borderwidth: 1 }
-        }, {responsive: true});
-        
-    } else if (msg.type === 'update') {
-        document.getElementById('status-stage').innerText = msg.stage;
-        document.getElementById('status-details').innerText = `Iteration: ${msg.iter} | Loss: ${msg.loss.toFixed(4)}`;
-        
-        Plotly.update('live-chart', {
-            y: [expCurrent, msg.sim_current]
-        });
-        
-    } else if (msg.type === 'done') {
-        document.getElementById('status-stage').innerText = 'Optimization Complete';
-        document.getElementById('status-details').innerText = 'All stages converged successfully. Physical parameters extracted.';
-        latestResults = msg.data;
-        displayResults(msg.data);
-        resetUI();
-        
-    } else if (msg.type === 'error') {
-        alert('Error: ' + msg.message);
-        document.getElementById('status-stage').innerText = "Solver Error";
-        document.getElementById('status-details').innerText = msg.message;
-        resetUI();
-    }
+// Plotly Live Charting
+function initLiveChart(potential, current) {
+    const traceExp = {
+        x: potential,
+        y: current,
+        mode: 'markers',
+        type: 'scatter',
+        name: 'Experimental Data',
+        marker: { color: '#94A3B8', size: 4, opacity: 0.6 }
+    };
+
+    const traceSim = {
+        x: potential,
+        y: [],
+        mode: 'lines',
+        type: 'scatter',
+        name: 'Physics Model Fit',
+        line: { color: '#2563EB', width: 2.5 }
+    };
+
+    const layout = Object.assign({}, layoutConfig, {
+        title: { text: 'Cyclic Voltammogram Real-Time Fit', font: { size: 14 } },
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)' }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current (A)' }),
+        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.8)' }
+    });
+
+    Plotly.react('live-chart', [traceExp, traceSim], layout, { responsive: true, displayModeBar: false });
 }
 
-// Display Extracted Results
-function displayResults(data) {
-    document.getElementById('results-panel').classList.remove('hidden');
-    
-    const paramsDiv = document.getElementById('params-output');
-    if (paramsDiv && data.parameters) {
-        paramsDiv.innerHTML = `
-            <div class="stat-box">
-                <div class="label">Diffusivity D₀</div>
-                <div class="value">${data.parameters.diffusivity.toExponential(4)} <span class="unit">cm²/s</span></div>
-            </div>
-            <div class="stat-box">
-                <div class="label">Beta (Left)</div>
-                <div class="value">${data.parameters.beta_left.toExponential(4)}</div>
-            </div>
-            <div class="stat-box">
-                <div class="label">Beta (Right)</div>
-                <div class="value">${data.parameters.beta_right.toExponential(4)}</div>
-            </div>
-            <div class="stat-box">
-                <div class="label">Baseline Offset</div>
-                <div class="value">${data.parameters.baseline_offset.toExponential(4)} <span class="unit">A</span></div>
-            </div>
-            <div class="stat-box">
-                <div class="label">V Center</div>
-                <div class="value">${data.parameters.v_center.toFixed(4)} <span class="unit">V</span></div>
-            </div>
-        `;
-    }
-    
-    // Density of States (DOS) Plot with Individual Sub-Bands
+function updateLiveChart(data) {
+    document.getElementById('status-stage').innerText = data.stage;
+    document.getElementById('status-details').innerText = `Iteration ${data.iter} | Current Weighted Loss: ${data.loss.toExponential(4)}`;
+
+    Plotly.update('live-chart', {
+        y: [expCurrent, data.sim_current]
+    }, {}, [0, 1]);
+}
+
+// Completion & Visualizations
+function finishOptimization(data) {
+    latestResults = data;
+    resetUI();
+
+    document.getElementById('status-stage').innerText = 'Optimization Complete';
+    document.getElementById('status-details').innerText = 'Model converged successfully. Extracted physical parameters displayed below.';
+
+    // Populate Parameter Table
+    const params = data.parameters;
+    document.getElementById('param-diffusivity').innerText = params.diffusivity.toExponential(4);
+    document.getElementById('param-beta-left').innerText = params.beta_left.toFixed(4);
+    document.getElementById('param-beta-right').innerText = params.beta_right.toFixed(4);
+    document.getElementById('param-v-center').innerText = params.v_center.toFixed(4);
+    document.getElementById('param-offset').innerText = params.baseline_offset.toExponential(4);
+
+    const resultsPanel = document.getElementById('results-panel');
+    if (resultsPanel) resultsPanel.classList.remove('hidden');
+
+    renderDiagnosticPlots(data.plots);
+}
+
+function renderDiagnosticPlots(plots) {
+    // 1. Final CV Fit Plot
+    const traceExp = {
+        x: plots.exp_potential,
+        y: plots.exp_current,
+        mode: 'markers',
+        type: 'scatter',
+        name: 'Experimental Data',
+        marker: { color: '#64748B', size: 4.5, opacity: 0.7 }
+    };
+
+    const traceSim = {
+        x: plots.exp_potential,
+        y: plots.sim_current,
+        mode: 'lines',
+        type: 'scatter',
+        name: 'Physics Fit',
+        line: { color: '#0F172A', width: 2.5 }
+    };
+
+    const cvLayout = Object.assign({}, layoutConfig, {
+        title: { text: 'Final Cyclic Voltammogram Fit', font: { size: 14 } },
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)' }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current (A)' }),
+        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.85)' }
+    });
+
+    Plotly.react('cv-fit-plot', [traceExp, traceSim], cvLayout, { responsive: true });
+
+    // 2. Diffusivity D(V) Plot
+    const traceDiff = {
+        x: plots.v_plot,
+        y: plots.d_of_v,
+        mode: 'lines',
+        type: 'scatter',
+        name: 'D(V)',
+        line: { color: '#2563EB', width: 2.5 }
+    };
+
+    const diffLayout = Object.assign({}, layoutConfig, {
+        title: { text: 'Voltage-Dependent Diffusivity D(V)', font: { size: 14 } },
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)' }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Diffusivity (cm²/s)', type: 'log' }),
+        showlegend: false
+    });
+
+    Plotly.react('diffusivity-plot', [traceDiff], diffLayout, { responsive: true });
+
+    // 3. Density of States DOS(V) Plot with Sub-bands
     const dosTraces = [];
-    
-    // Add individual Gaussian sub-peaks if available
-    if (data.plots.dos_matrix && Array.isArray(data.plots.dos_matrix)) {
-        data.plots.dos_matrix.forEach((modeY, idx) => {
+
+    if (plots.dos_matrix && plots.dos_matrix.length > 0) {
+        plots.dos_matrix.forEach((band, idx) => {
             dosTraces.push({
-                x: data.plots.v_plot,
-                y: modeY,
-                type: 'scatter',
+                x: plots.v_plot,
+                y: band,
                 mode: 'lines',
+                type: 'scatter',
                 name: `Mode ${idx + 1}`,
-                line: { color: '#94A3B8', width: 1, dash: 'dot' },
-                hoverinfo: 'skip',
-                showlegend: false
+                line: { width: 1, dash: 'dot', color: '#94A3B8' },
+                hoverinfo: 'skip'
             });
         });
     }
-    
-    // Add Total DOS curve
+
     dosTraces.push({
-        x: data.plots.v_plot,
-        y: data.plots.dos_total,
-        type: 'scatter',
+        x: plots.v_plot,
+        y: plots.dos_total,
         mode: 'lines',
+        type: 'scatter',
         name: 'Total DOS',
-        line: { color: '#0F172A', width: 2.5 },
-        showlegend: true
+        line: { color: '#059669', width: 3 }
     });
-    
-    Plotly.newPlot('dos-chart', dosTraces, {
-        ...layoutConfig,
-        xaxis: { 
-            ...layoutConfig.xaxis, 
-            title: 'Potential (V)',
-            range: [Math.min(...data.plots.v_plot), Math.max(...data.plots.v_plot)]
-        },
-        yaxis: { ...layoutConfig.yaxis, title: 'Density of States (a.u.)' },
-        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.85)', bordercolor: '#E2E8F0', borderwidth: 1 }
-    }, {responsive: true});
-    
-    // Extracted Diffusivity Plot
-    Plotly.newPlot('diffusivity-chart', [{
-        x: data.plots.v_plot,
-        y: data.plots.d_of_v,
-        type: 'scatter',
-        mode: 'lines',
-        name: 'D(V)',
-        line: { color: '#2563EB', width: 2.5 }
-    }], {
-        ...layoutConfig,
-        xaxis: { 
-            ...layoutConfig.xaxis, 
-            title: 'Potential (V)',
-            range: [Math.min(...data.plots.v_plot), Math.max(...data.plots.v_plot)],
-            exponentformat: 'none'
-        },
-        yaxis: { ...layoutConfig.yaxis, title: 'Diffusivity D (cm²/s)', type: 'log' },
+
+    const dosLayout = Object.assign({}, layoutConfig, {
+        title: { text: 'Extracted Density of States DOS(V)', font: { size: 14 } },
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)' }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'DOS (a.u.)' }),
         showlegend: false
-    }, {responsive: true});
+    });
+
+    Plotly.react('dos-plot', dosTraces, dosLayout, { responsive: true });
 }
 
-// Export Results (JSON & CSV)
+// Data Export Utilities
 const exportJsonBtn = document.getElementById('export-json-btn');
+const exportCsvBtn = document.getElementById('export-csv-btn');
+
+function downloadFile(content, fileName, contentType) {
+    const a = document.createElement("a");
+    const file = new Blob([content], { type: contentType });
+    a.href = URL.createObjectURL(file);
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(a.href);
+    }, 100);
+}
+
 if (exportJsonBtn) {
     exportJsonBtn.addEventListener('click', () => {
         if (!latestResults) return;
-        const blob = new Blob([JSON.stringify(latestResults, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `cv_fit_parameters_${Date.now()}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const jsonStr = JSON.stringify(latestResults, null, 2);
+        downloadFile(jsonStr, 'cv_optimization_results.json', 'application/json');
     });
 }
 
-const exportCsvBtn = document.getElementById('export-csv-btn');
 if (exportCsvBtn) {
     exportCsvBtn.addEventListener('click', () => {
         if (!latestResults || !latestResults.plots) return;
-        const plots = latestResults.plots;
-        const rows = ["Potential_V,Exp_Current_A,Sim_Current_A"];
-        const len = plots.exp_potential.length;
-        for (let i = 0; i < len; i++) {
-            const v = plots.exp_potential[i];
-            const expI = plots.exp_current[i];
-            const simI = plots.sim_current[i] !== undefined ? plots.sim_current[i] : "";
-            rows.push(`${v},${expI},${simI}`);
+        const p = latestResults.plots;
+        const rows = ["Index,Potential_V,Exp_Current_A,Sim_Current_A,V_Plot,D_of_V,DOS_Total"];
+        const maxLen = Math.max(p.exp_potential.length, p.v_plot.length);
+
+        for (let i = 0; i < maxLen; i++) {
+            const pot = i < p.exp_potential.length ? p.exp_potential[i] : "";
+            const expCur = i < p.exp_current.length ? p.exp_current[i] : "";
+            const simCur = i < p.sim_current.length ? p.sim_current[i] : "";
+            const vp = i < p.v_plot.length ? p.v_plot[i] : "";
+            const dv = i < p.d_of_v.length ? p.d_of_v[i] : "";
+            const dos = i < p.dos_total.length ? p.dos_total[i] : "";
+            rows.push(`${i},${pot},${expCur},${simCur},${vp},${dv},${dos}`);
         }
-        const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `cv_fitted_curves_${Date.now()}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
+
+        downloadFile(rows.join("\n"), 'cv_optimization_data.csv', 'text/csv');
     });
 }
 
-// Initialize worker on page load
+// Initial Worker Spawn
 initWorker();

@@ -3,8 +3,8 @@
 
 function generateSampleCVData() {
     const rows = ["Index,Potential_V,Current_A"];
-    const v_min = -0.8;
-    const v_max = 0.8;
+    const v_min = -1.0;
+    const v_max = 1.0;
     const n_pts = 400;
     
     // Forward scan (-0.8V to 0.8V)

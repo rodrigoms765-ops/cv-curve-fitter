@@ -26,8 +26,8 @@ function solveCVSimulation(fileContent, rawConfig) {
     const v_max = parseFloat(rawConfig.v_max || 1.0);
     const skip_factor = parseInt(rawConfig.skip_factor || 10, 10);
     const num_peaks = parseInt(rawConfig.num_peaks || 30, 10);
-    const max_iter = parseInt(rawConfig.max_iter || 100, 10);
-    const num_terms = parseInt(rawConfig.num_terms || 50, 10);
+    const max_iter = parseInt(rawConfig.max_iter || 50, 10);
+    const num_terms = parseInt(rawConfig.num_terms || 25, 10);
     const loss_weight_const = parseFloat(rawConfig.loss_weight_const || 1.0);
     const pot_col = parseInt(rawConfig.pot_col !== undefined ? rawConfig.pot_col : 8, 10);
     const cur_col = parseInt(rawConfig.cur_col !== undefined ? rawConfig.cur_col : 9, 10);

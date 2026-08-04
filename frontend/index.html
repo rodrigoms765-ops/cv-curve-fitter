@@ -3,12 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CV Curve Fitting Pro</title>
+    <title>CV Curve Fitting Pro | Physics-Based Optimization Engine</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" charset="utf-8"></script>
 </head>
 <body>
+    <!-- Top Navigation Bar -->
     <nav class="top-nav">
         <div class="nav-container">
             <div class="nav-brand">
@@ -16,13 +17,14 @@
                 <span class="brand-subtitle">Physics-Based Optimization Engine</span>
             </div>
             <div class="nav-links">
-                <a href="#" class="active">Solver</a>
-                <a href="#">Documentation</a>
+                <a href="#solver" id="nav-solver-btn" class="active">Solver</a>
+                <a href="#documentation" id="nav-doc-btn">Documentation</a>
             </div>
         </div>
     </nav>
 
-    <main class="app-container">
+    <!-- Main Layout Container -->
+    <main class="app-container" id="solver">
         <div class="content-grid">
             <!-- Left Column: Controls -->
             <div class="controls-column">
@@ -32,29 +34,35 @@
                     </header>
                     <div class="panel-body">
                         <form id="cv-form">
-                            <div class="form-group file-upload-wrapper">
+                            <!-- File Upload & Demo Loader -->
+                            <div class="form-group file-upload-wrapper" id="drop-zone">
                                 <label>Upload CV Data (.csv)</label>
                                 <div class="file-upload-custom">
-                                    <label for="csv-file" class="btn-secondary">Choose File</label>
+                                    <label for="csv-file" class="btn-secondary" id="choose-file-btn">Choose File</label>
+                                    <button type="button" class="btn-demo" id="load-demo-btn">Load Demo Data</button>
+                                </div>
+                                <div class="file-name-row">
                                     <span id="file-name-display">No file chosen</span>
                                 </div>
-                                <input type="file" id="csv-file" name="file" accept=".csv" required class="hidden-file-input">
+                                <input type="file" id="csv-file" name="file" accept=".csv,.txt" class="hidden-file-input">
                             </div>
 
+                            <!-- Data Mapping -->
                             <fieldset class="form-section">
                                 <legend>Data Mapping</legend>
                                 <div class="input-grid">
                                     <div class="form-group">
-                                        <label for="pot_col">Potential Column Index</label>
-                                        <input type="number" id="pot_col" name="pot_col" value="8" required>
+                                        <label for="pot_col">Potential Col Index (0-based)</label>
+                                        <input type="number" id="pot_col" name="pot_col" value="8" min="0" required>
                                     </div>
                                     <div class="form-group">
-                                        <label for="cur_col">Current Column Index</label>
-                                        <input type="number" id="cur_col" name="cur_col" value="9" required>
+                                        <label for="cur_col">Current Col Index (0-based)</label>
+                                        <input type="number" id="cur_col" name="cur_col" value="9" min="0" required>
                                     </div>
                                 </div>
                             </fieldset>
 
+                            <!-- Physical Parameters -->
                             <fieldset class="form-section">
                                 <legend>Physical Parameters</legend>
                                 <div class="input-grid">
@@ -64,30 +72,32 @@
                                     </div>
                                     <div class="form-group">
                                         <label for="film_thickness">Film Thickness (cm)</label>
-                                        <input type="number" id="film_thickness" name="film_thickness" step="1e-5" value="0.0001" required>
+                                        <input type="number" id="film_thickness" name="film_thickness" step="1e-6" value="0.0001" required>
                                     </div>
                                     <div class="form-group">
                                         <label for="v_min">Min Potential (V)</label>
-                                        <input type="number" id="v_min" name="v_min" step="0.1" value="-1.0" required>
+                                        <input type="number" id="v_min" name="v_min" step="0.05" value="-1.0" required>
                                     </div>
                                     <div class="form-group">
                                         <label for="v_max">Max Potential (V)</label>
-                                        <input type="number" id="v_max" name="v_max" step="0.1" value="1.0" required>
+                                        <input type="number" id="v_max" name="v_max" step="0.05" value="1.0" required>
                                     </div>
                                     <div class="form-group">
-                                        <label for="skip_factor">Data Downsample Factor</label>
-                                        <input type="number" id="skip_factor" name="skip_factor" value="10" required>
+                                        <label for="skip_factor">Downsample Factor</label>
+                                        <input type="number" id="skip_factor" name="skip_factor" min="1" value="10" required>
                                     </div>
                                     <div class="form-group">
                                         <label for="num_peaks">Number of Peaks</label>
-                                        <input type="number" id="num_peaks" name="num_peaks" value="30" required>
+                                        <input type="number" id="num_peaks" name="num_peaks" min="5" max="100" value="30" required>
                                     </div>
                                 </div>
                             </fieldset>
                             
+                            <!-- Advanced Optimization Settings -->
                             <div class="advanced-section">
                                 <button type="button" class="advanced-toggle" id="advanced-toggle" aria-expanded="false">
-                                    Advanced Optimization Settings <span class="toggle-icon">▼</span>
+                                    <span>Advanced Optimization Settings</span>
+                                    <span class="toggle-icon" id="toggle-icon">▼</span>
                                 </button>
                                 <div class="advanced-content hidden" id="advanced-content">
                                     <fieldset class="form-section">
@@ -95,14 +105,14 @@
                                         <div class="input-grid">
                                             <div class="form-group">
                                                 <label for="max_iter">Max Iterations</label>
-                                                <input type="number" id="max_iter" name="max_iter" value="100" required>
+                                                <input type="number" id="max_iter" name="max_iter" value="100" min="10" max="1000" required>
                                             </div>
                                             <div class="form-group">
                                                 <label for="num_terms">Fourier Modes</label>
-                                                <input type="number" id="num_terms" name="num_terms" value="50" required>
+                                                <input type="number" id="num_terms" name="num_terms" value="50" min="10" max="200" required>
                                             </div>
                                             <div class="form-group">
-                                                <label for="loss_weight_const">Loss Weight Constant</label>
+                                                <label for="loss_weight_const">Loss Weight Const</label>
                                                 <input type="number" id="loss_weight_const" name="loss_weight_const" step="0.1" value="1.0" required>
                                             </div>
                                             <div class="form-group">
@@ -126,12 +136,13 @@
 
             <!-- Right Column: Visualizations & Results -->
             <div class="visuals-column">
-                <section class="panel status-panel hidden" id="status-panel">
-                    <div class="panel-header status-header">
-                        <div class="spinner hidden"></div>
+                <!-- Status Panel with Live Plot -->
+                <section class="panel status-panel" id="status-panel">
+                    <div class="panel-header status-header" id="status-header">
+                        <div class="spinner hidden" id="status-spinner"></div>
                         <div class="status-info">
                             <h2 id="status-stage">System Ready</h2>
-                            <p id="status-details">Upload data and execute to begin optimization.</p>
+                            <p id="status-details">Upload data or click "Load Demo Data" and execute optimization.</p>
                         </div>
                     </div>
                     <div class="panel-body">
@@ -141,22 +152,28 @@
                     </div>
                 </section>
 
+                <!-- Extracted Parameters & Results Panel -->
                 <div class="results-panel hidden" id="results-panel">
                     <section class="panel">
-                        <header class="panel-header">
+                        <header class="panel-header results-header-row">
                             <h2>Extracted Physical Parameters</h2>
+                            <div class="export-actions">
+                                <button type="button" class="btn-export" id="export-json-btn">Export JSON</button>
+                                <button type="button" class="btn-export" id="export-csv-btn">Export Curves CSV</button>
+                            </div>
                         </header>
                         <div class="panel-body">
                             <div class="stats-grid" id="params-output">
-                                <!-- Filled by JS -->
+                                <!-- Populated dynamically by JS -->
                             </div>
                         </div>
                     </section>
 
+                    <!-- Secondary Diagnostics (DOS & Diffusivity) -->
                     <div class="secondary-charts-grid">
                         <section class="panel">
                             <header class="panel-header">
-                                <h3>Density of States</h3>
+                                <h3>Density of States (DOS)</h3>
                             </header>
                             <div class="panel-body chart-wrapper-small">
                                 <div id="dos-chart"></div>
@@ -164,7 +181,7 @@
                         </section>
                         <section class="panel">
                             <header class="panel-header">
-                                <h3>Diffusivity Profile</h3>
+                                <h3>Diffusivity Profile D(V)</h3>
                             </header>
                             <div class="panel-body chart-wrapper-small">
                                 <div id="diffusivity-chart"></div>
@@ -176,12 +193,70 @@
         </div>
     </main>
     
+    <!-- Documentation Modal -->
+    <div class="modal-backdrop hidden" id="doc-modal" role="dialog" aria-modal="true" aria-labelledby="doc-title">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="doc-title">Physical Model & Theory Documentation</h2>
+                <button type="button" class="modal-close" id="doc-close-btn" aria-label="Close modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <section class="doc-section">
+                    <h3>1. Governing Diffusion Dynamics</h3>
+                    <p>The solver models 1D ion transport within a thin-film electrode of thickness \(L\) subjected to cyclic potential sweeps \(V(t)\). The concentration distribution \(C(x,t)\) satisfies Fick's Second Law with potential-dependent diffusivity \(D(V)\):</p>
+                    <div class="math-box">
+                        $$\frac{\partial C(x,t)}{\partial t} = D(V(t)) \frac{\partial^2 C(x,t)}{\partial x^2}$$
+                    </div>
+                    <p>Boundary conditions represent a blocking substrate at \(x = 0\) and equilibrium ion insertion at the electrolyte interface \(x = L\):</p>
+                    <div class="math-box">
+                        $$\left.\frac{\partial C}{\partial x}\right|_{x=0} = 0, \quad C(L,t) = \theta_{eq}(V(t))$$
+                    </div>
+                </section>
+
+                <section class="doc-section">
+                    <h3>2. Potential-Dependent Diffusivity \(D(V)\)</h3>
+                    <p>Diffusivity is asymmetric across the central thermodynamic threshold \(V_c\), modeled as:</p>
+                    <div class="math-box">
+                        $$D(V) = D_0 \exp\left(\beta(V) \cdot (V - V_c)^2\right), \quad \beta(V) = \begin{cases} \beta_L, & V < V_c \\ \beta_R, & V \ge V_c \end{cases}$$
+                    </div>
+                </section>
+
+                <section class="doc-section">
+                    <h3>3. Density of States (DOS) Representation</h3>
+                    <p>The equilibrium state function \(\theta_{eq}(V)\) is synthesized from a superposition of \(N\) Fermi-Dirac / error-function sub-bands:</p>
+                    <div class="math-box">
+                        $$\theta_{eq}(V) = \sum_{i=1}^{N} \frac{w_i}{1 + \exp(-k_i(V - V_{c,i}))}$$
+                    </div>
+                    <p>The total Density of States \(DOS(V) = \frac{d\theta_{eq}}{dV}\) is the sum over individual Gaussian sub-band distributions:</p>
+                    <div class="math-box">
+                        $$DOS(V) = \sum_{i=1}^{N} w_i k_i \frac{\exp(-k_i(V - V_{c,i}))}{\left(1 + \exp(-k_i(V - V_{c,i}))\right)^2}$$
+                    </div>
+                </section>
+
+                <section class="doc-section">
+                    <h3>4. Multi-Stage L-BFGS-B Optimization Strategy</h3>
+                    <ul>
+                        <li><strong>Stage 1 (Pure Flat Baseline)</strong>: Fits the DC baseline current offset while masking high-curvature potential zones.</li>
+                        <li><strong>Stage 1.5 (Background Tails)</strong>: Fits non-faradaic exponential charging tails (\(a_L, k_L, a_R, k_R\)).</li>
+                        <li><strong>Stage 2 (Anchor Peaks)</strong>: Fixes diffusion coefficients and optimizes peak placements (\(w_i, V_{c,i}, k_i\)).</li>
+                        <li><strong>Stage 3 (Full Non-Linear Polish)</strong>: Unfreezes all parameters simultaneously for global refinement.</li>
+                    </ul>
+                </section>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-primary modal-ok-btn" id="doc-ok-btn">Close Documentation</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
     <footer class="site-footer">
         <div class="footer-container">
-            <p>&copy; 2026 CV Curve Fitting Pro. Designed for robust, functional analysis.</p>
+            <p>&copy; 2026 CV Curve Fitting Pro &bull; Physics-Based Electrochemical Optimizer &bull; Client-Side WebAssembly Powered</p>
         </div>
     </footer>
 
+    <script src="sample_cv_data.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

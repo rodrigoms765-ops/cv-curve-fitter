@@ -1,70 +1,96 @@
-// ==========================================================================
-// Cyclic Voltammetry Model Fitting — Application Controller
-// ==========================================================================
+document.getElementById('advanced-toggle').addEventListener('click', () => {
+    document.getElementById('advanced-content').classList.toggle('hidden');
+});
+
+const layoutConfig = {
+    paper_bgcolor: '#FFFFFF',
+    plot_bgcolor: '#F8F9FA',
+    font: { color: '#212529', family: 'Roboto, sans-serif' },
+    xaxis: { 
+        gridcolor: '#DEE2E6', 
+        zerolinecolor: '#ADB5BD',
+        linecolor: '#DEE2E6',
+        linewidth: 1,
+        mirror: true,
+        ticks: 'outside'
+    },
+    yaxis: { 
+        gridcolor: '#DEE2E6', 
+        zerolinecolor: '#ADB5BD',
+        linecolor: '#DEE2E6',
+        linewidth: 1,
+        mirror: true,
+        ticks: 'outside',
+        exponentformat: 'e'
+    },
+    margin: { t: 30, r: 30, l: 70, b: 60 }
+};
 
 let solverWorker = null;
-let currentFileContent = "";
-let lastResultsData = null;
 let expPotential = [];
 let expCurrent = [];
 
-// Publication-standard plot layout
-const scientificPlotLayout = {
-    paper_bgcolor: '#FFFFFF',
-    plot_bgcolor: '#FFFFFF',
-    font: { color: '#111827', family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif', size: 12 },
-    xaxis: { 
-        gridcolor: '#F3F4F6', 
-        zerolinecolor: '#E5E7EB',
-        linecolor: '#111827',
-        linewidth: 1,
-        mirror: true,
-        ticks: 'inside',
-        showline: true
-    },
-    yaxis: { 
-        gridcolor: '#F3F4F6', 
-        zerolinecolor: '#E5E7EB',
-        linecolor: '#111827',
-        linewidth: 1,
-        mirror: true,
-        ticks: 'inside',
-        showline: true,
-        exponentformat: 'e'
-    },
-    margin: { t: 20, r: 20, l: 65, b: 50 },
-    hovermode: 'closest'
-};
-
-function initSolverWorker() {
+function initWorker() {
     solverWorker = new Worker('solver_worker.js');
-    
     solverWorker.onmessage = (e) => {
         try {
             const msg = JSON.parse(e.data);
             handleWorkerMessage(msg);
         } catch (err) {
-            console.error("Worker message parse error:", err, e.data);
+            console.error("Parse error:", err);
         }
     };
-
     solverWorker.onerror = (err) => {
         console.error("Worker error:", err);
-        document.getElementById('engine-status').innerText = 'Worker error';
-        alert("Failed to load solver worker. Ensure your browser supports WebAssembly.");
+        alert("Worker initialization failed. Please ensure WebAssembly is supported.");
+        resetUI();
     };
 }
 
-function handleWorkerMessage(msg) {
-    const statusElem = document.getElementById('engine-status');
-    const submitBtn = document.getElementById('submit-btn');
+document.getElementById('cv-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    
+    const form = e.target;
+    const fileInput = document.getElementById('csv-file');
+    const file = fileInput.files[0];
+    if (!file) return;
 
+    const formData = new FormData(form);
+    const config = Object.fromEntries(formData.entries());
+    delete config.file;
+
+    document.getElementById('submit-btn').disabled = true;
+    document.getElementById('status-panel').classList.remove('hidden');
+    document.getElementById('results-panel').classList.add('hidden');
+    document.querySelector('.status-header').classList.remove('hidden');
+    document.querySelector('.status-header .spinner').classList.remove('hidden');
+    document.getElementById('status-stage').innerText = 'Initializing...';
+    document.getElementById('status-details').innerText = 'Starting solver...';
+    
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        const fileContent = ev.target.result;
+        
+        if (!solverWorker) {
+            initWorker();
+        }
+        
+        solverWorker.postMessage({
+            action: 'solve',
+            file_content: fileContent,
+            config: config
+        });
+    };
+    reader.readAsText(file);
+});
+
+function resetUI() {
+    document.getElementById('submit-btn').disabled = false;
+}
+
+function handleWorkerMessage(msg) {
     if (msg.type === 'status') {
-        statusElem.innerText = msg.message;
-    } else if (msg.type === 'ready') {
-        statusElem.innerText = 'Engine ready';
-        statusElem.classList.add('ready');
-        submitBtn.disabled = false;
+        document.getElementById('status-details').innerText = msg.message;
     } else if (msg.type === 'init') {
         expPotential = msg.exp_potential;
         expCurrent = msg.exp_current;
@@ -75,199 +101,121 @@ function handleWorkerMessage(msg) {
                 y: expCurrent,
                 type: 'scatter',
                 mode: 'markers',
-                name: 'Experimental',
-                marker: { color: '#6B7280', size: 4 }
+                name: 'Raw Data',
+                marker: { color: '#6C757D', size: 4 }
             },
             {
                 x: expPotential,
                 y: new Array(expPotential.length).fill(0),
                 type: 'scatter',
                 mode: 'lines',
-                name: 'Fitted Model',
-                line: { color: '#1E40AF', width: 2 }
+                name: 'Simulated',
+                line: { color: '#334155', width: 2 }
             }
         ], {
-            ...scientificPlotLayout,
+            ...layoutConfig,
             xaxis: { 
-                ...scientificPlotLayout.xaxis, 
+                ...layoutConfig.xaxis, 
                 title: 'Potential (V)',
-                range: [Math.min(...expPotential), Math.max(...expPotential)]
+                range: [Math.min(...expPotential), Math.max(...expPotential)],
+                exponentformat: 'none'
             },
-            yaxis: { ...scientificPlotLayout.yaxis, title: 'Current (A)' },
-            legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.9)', bordercolor: '#E5E7EB', borderwidth: 1 }
-        }, { responsive: true });
+            yaxis: { ...layoutConfig.yaxis, title: 'Current (A)' },
+            legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.8)', bordercolor: '#DEE2E6', borderwidth: 1 }
+        }, {responsive: true});
         
     } else if (msg.type === 'update') {
-        document.getElementById('status-stage').innerText = `${msg.stage} (Iteration ${msg.iter})`;
-        document.getElementById('status-metrics').innerText = `Loss: ${msg.loss.toFixed(5)}`;
+        document.getElementById('status-stage').innerText = msg.stage;
+        document.getElementById('status-details').innerText = `Iteration: ${msg.iter} | Loss: ${msg.loss.toFixed(4)}`;
         
         Plotly.update('live-chart', {
             y: [expCurrent, msg.sim_current]
         });
         
     } else if (msg.type === 'done') {
-        document.getElementById('status-stage').innerText = 'Optimization Converged';
-        lastResultsData = msg.data;
+        document.querySelector('.status-header').classList.add('hidden');
         displayResults(msg.data);
-        submitBtn.disabled = false;
-        submitBtn.innerText = 'Run Optimization';
+        resetUI();
         
     } else if (msg.type === 'error') {
-        alert('Optimization error: ' + msg.message);
-        document.getElementById('status-stage').innerText = 'Error: ' + msg.message;
-        submitBtn.disabled = false;
-        submitBtn.innerText = 'Run Optimization';
+        alert('Error: ' + msg.message);
+        document.querySelector('.status-header .spinner').classList.add('hidden');
+        document.getElementById('status-stage').innerText = "Error";
+        document.getElementById('status-details').innerText = msg.message;
+        resetUI();
     }
 }
 
 function displayResults(data) {
-    document.getElementById('results-card').classList.remove('hidden');
-    document.getElementById('diagnostics-grid').classList.remove('hidden');
+    document.getElementById('results-panel').classList.remove('hidden');
     
-    const tbody = document.getElementById('params-tbody');
-    tbody.innerHTML = `
-        <tr>
-            <td>Baseline Diffusivity</td>
-            <td>D₀</td>
-            <td>${data.parameters.diffusivity.toExponential(4)}</td>
-            <td>cm²/s</td>
-        </tr>
-        <tr>
-            <td>Exponential Coefficient (Anodic)</td>
-            <td>β_L</td>
-            <td>${data.parameters.beta_left.toFixed(4)}</td>
-            <td>V⁻²</td>
-        </tr>
-        <tr>
-            <td>Exponential Coefficient (Cathodic)</td>
-            <td>β_R</td>
-            <td>${data.parameters.beta_right.toFixed(4)}</td>
-            <td>V⁻²</td>
-        </tr>
-        <tr>
-            <td>Current Baseline Offset</td>
-            <td>I_offset</td>
-            <td>${data.parameters.baseline_offset.toExponential(4)}</td>
-            <td>A</td>
-        </tr>
-        <tr>
-            <td>Center Transition Potential</td>
-            <td>E₀</td>
-            <td>${data.parameters.v_center.toFixed(4)}</td>
-            <td>V</td>
-        </tr>
+    const paramsDiv = document.getElementById('params-output');
+    paramsDiv.innerHTML = `
+        <div class="stat-box">
+            <div class="label">Diffusivity</div>
+            <div class="value">${data.parameters.diffusivity.toExponential(4)} <span class="unit">cm²/s</span></div>
+        </div>
+        <div class="stat-box">
+            <div class="label">Beta (Left)</div>
+            <div class="value">${data.parameters.beta_left.toExponential(4)}</div>
+        </div>
+        <div class="stat-box">
+            <div class="label">Beta (Right)</div>
+            <div class="value">${data.parameters.beta_right.toExponential(4)}</div>
+        </div>
+        <div class="stat-box">
+            <div class="label">Baseline Offset</div>
+            <div class="value">${data.parameters.baseline_offset.toExponential(4)} <span class="unit">A</span></div>
+        </div>
+        <div class="stat-box">
+            <div class="label">V Center</div>
+            <div class="value">${data.parameters.v_center.toFixed(4)} <span class="unit">V</span></div>
+        </div>
     `;
     
-    // Density of States
-    Plotly.newPlot('dos-chart', [{
+    const dosTraces = [{
         x: data.plots.v_plot,
         y: data.plots.dos_total,
         type: 'scatter',
         mode: 'lines',
-        name: 'DOS',
-        line: { color: '#111827', width: 1.75 }
-    }], {
-        ...scientificPlotLayout,
+        name: 'Total DOS',
+        line: { color: '#0f172a', width: 2 }
+    }];
+    
+    Plotly.newPlot('dos-chart', dosTraces, {
+        ...layoutConfig,
         xaxis: { 
-            ...scientificPlotLayout.xaxis, 
+            ...layoutConfig.xaxis, 
             title: 'Potential (V)',
             range: [Math.min(...data.plots.v_plot), Math.max(...data.plots.v_plot)]
         },
-        yaxis: { ...scientificPlotLayout.yaxis, title: 'Density of States (a.u.)' },
+        yaxis: { ...layoutConfig.yaxis, title: 'Density of States (a.u.)' },
         showlegend: false
-    }, { responsive: true });
+    }, {responsive: true});
     
-    // Diffusivity vs Potential
     Plotly.newPlot('diffusivity-chart', [{
         x: data.plots.v_plot,
         y: data.plots.d_of_v,
         type: 'scatter',
         mode: 'lines',
-        name: 'D(E)',
-        line: { color: '#2563EB', width: 1.75 }
+        line: { color: '#475569', width: 2 }
     }], {
-        ...scientificPlotLayout,
+        ...layoutConfig,
         xaxis: { 
-            ...scientificPlotLayout.xaxis, 
+            ...layoutConfig.xaxis, 
             title: 'Potential (V)',
-            range: [Math.min(...data.plots.v_plot), Math.max(...data.plots.v_plot)]
+            range: [Math.min(...data.plots.v_plot), Math.max(...data.plots.v_plot)],
+            exponentformat: 'none'
         },
-        yaxis: { ...scientificPlotLayout.yaxis, title: 'D(E) (cm²/s)', type: 'log' },
-        showlegend: false
-    }, { responsive: true });
+        yaxis: { ...layoutConfig.yaxis, title: 'D (cm²/s)', type: 'log' }
+    }, {responsive: true});
 }
 
-// File Selection
-const fileInput = document.getElementById('csv-file');
-const fileStatusText = document.getElementById('file-status-text');
-
-fileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    fileStatusText.innerText = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-        currentFileContent = ev.target.result;
-    };
-    reader.readAsText(file);
+// Custom file input logic
+document.getElementById('csv-file').addEventListener('change', function(e) {
+    const fileName = e.target.files[0] ? e.target.files[0].name : "No file chosen";
+    document.getElementById('file-name-display').innerText = fileName;
 });
 
-// Load Sample Data
-document.getElementById('btn-load-sample').addEventListener('click', () => {
-    currentFileContent = SAMPLE_CV_CSV;
-    fileStatusText.innerText = "Example dataset loaded (synthetic CV)";
-    document.getElementById('pot_col').value = 1;
-    document.getElementById('cur_col').value = 2;
-    document.getElementById('scan_rate').value = "0.010";
-    document.getElementById('film_thickness').value = "0.0001";
-    document.getElementById('v_min').value = "-0.8";
-    document.getElementById('v_max').value = "0.8";
-    document.getElementById('skip_factor').value = "5";
-    document.getElementById('num_peaks').value = "25";
-});
-
-// Submit Optimization
-document.getElementById('cv-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    if (!currentFileContent) {
-        alert("Please select a CSV file or load the example dataset.");
-        return;
-    }
-    
-    const formData = new FormData(e.target);
-    const config = Object.fromEntries(formData.entries());
-    delete config.file;
-    
-    const submitBtn = document.getElementById('submit-btn');
-    submitBtn.disabled = true;
-    submitBtn.innerText = 'Calculating...';
-    
-    document.getElementById('status-banner').classList.remove('hidden');
-    document.getElementById('results-card').classList.add('hidden');
-    document.getElementById('diagnostics-grid').classList.add('hidden');
-    document.getElementById('status-stage').innerText = 'Initializing optimization stages...';
-    document.getElementById('status-metrics').innerText = 'Loss: --';
-    
-    solverWorker.postMessage({
-        action: 'solve',
-        file_content: currentFileContent,
-        config: config
-    });
-});
-
-// Export JSON
-document.getElementById('btn-export-json').addEventListener('click', () => {
-    if (!lastResultsData) return;
-    const blob = new Blob([JSON.stringify(lastResultsData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `cv_model_parameters_${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-});
-
-// Start Worker
-initSolverWorker();
+// Initialize worker on page load
+initWorker();

@@ -1,5 +1,6 @@
 // CV Curve Fitting Pro - Dual-Mode Client Controller & Visualizer
 // Seamless Hybrid: Fast Local JAX Backend (ws://127.0.0.1:8000) with In-Browser Worker Fallback
+// Features: Auto CSV Column Detection, Live Pre-Fit Plotting, Multi-Engine Switching
 
 // Global State
 let solverWorker = null;
@@ -9,7 +10,9 @@ let expCurrent = [];
 let latestResults = null;
 let stagedFileContent = null;
 let stagedFileName = "No file chosen";
+let detectedColumns = [];
 let isLocalBackendAvailable = false;
+
 const BACKEND_URL_HTTP = "http://127.0.0.1:8000/health";
 const BACKEND_URL_WS = "ws://127.0.0.1:8000/ws/solve";
 
@@ -74,9 +77,7 @@ async function probeLocalBackend() {
 
         if (res.ok) {
             isLocalBackendAvailable = true;
-            if (dot) {
-                dot.className = 'status-dot online';
-            }
+            if (dot) dot.className = 'status-dot online';
             if (label) label.innerText = '⚡ Local JAX Active';
             if (msg) {
                 msg.innerText = '⚡ Local JAX Backend Connected (Port 8000)';
@@ -85,13 +86,11 @@ async function probeLocalBackend() {
             return true;
         }
     } catch (e) {
-        // Backend not reachable
+        // Backend offline
     }
 
     isLocalBackendAvailable = false;
-    if (dot) {
-        dot.className = 'status-dot offline';
-    }
+    if (dot) dot.className = 'status-dot offline';
     if (label) label.innerText = '🌐 In-Browser Engine';
     if (msg) {
         msg.innerText = 'Local server offline. Using in-browser engine.';
@@ -163,6 +162,154 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// CSV Delimiter Detector
+function detectDelimiter(line) {
+    const commas = (line.match(/,/g) || []).length;
+    const tabs = (line.match(/\t/g) || []).length;
+    const semicolons = (line.match(/;/g) || []).length;
+    if (tabs > commas && tabs > semicolons) return '\t';
+    if (semicolons > commas && semicolons > tabs) return ';';
+    return ',';
+}
+
+// Robust CSV Column Analysis & Dropdown Populator
+function analyzeCSVAndPopulateColumns(content) {
+    const lines = content.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('#') && !l.trim().startsWith('//'));
+    if (lines.length === 0) return;
+
+    const delimiter = detectDelimiter(lines[0]);
+    const firstLineFields = lines[0].split(delimiter).map(s => s.trim());
+    const secondLineFields = lines.length > 1 ? lines[1].split(delimiter).map(s => s.trim()) : [];
+
+    // Check if line 0 is a string header
+    let hasHeader = false;
+    if (firstLineFields.some(f => isNaN(parseFloat(f)) && f.length > 0)) {
+        hasHeader = true;
+    }
+
+    const colCount = hasHeader ? firstLineFields.length : (secondLineFields.length || firstLineFields.length);
+    detectedColumns = [];
+
+    // Frequency map to disambiguate repeated names (e.g., Multiple "Potential (V)" cycles)
+    const nameCounts = {};
+
+    for (let c = 0; c < colCount; c++) {
+        let baseName = hasHeader && firstLineFields[c] ? firstLineFields[c] : `Column ${c}`;
+        nameCounts[baseName] = (nameCounts[baseName] || 0) + 1;
+        let displayName = baseName;
+        if (nameCounts[baseName] > 1) {
+            displayName = `${baseName} (#${nameCounts[baseName]})`;
+        }
+        detectedColumns.push({
+            index: c,
+            name: displayName,
+            rawName: baseName
+        });
+    }
+
+    // Populate Select Elements
+    const potSelect = document.getElementById('pot_col');
+    const curSelect = document.getElementById('cur_col');
+    const metaBar = document.getElementById('column-meta-bar');
+    const metaText = document.getElementById('detected-columns-text');
+
+    if (potSelect && curSelect) {
+        potSelect.innerHTML = '';
+        curSelect.innerHTML = '';
+
+        detectedColumns.forEach(col => {
+            const optP = document.createElement('option');
+            optP.value = col.index;
+            optP.textContent = `[Col ${col.index}] ${col.name}`;
+            potSelect.appendChild(optP);
+
+            const optC = document.createElement('option');
+            optC.value = col.index;
+            optC.textContent = `[Col ${col.index}] ${col.name}`;
+            curSelect.appendChild(optC);
+        });
+
+        // Smart Default Selection:
+        // If >= 10 columns (Standard 4-cycle CV file), default to Col 8 & Col 9 (Cycle 3)
+        // If fewer columns, default to Col 0 & Col 1
+        let defaultPot = 0;
+        let defaultCur = colCount > 1 ? 1 : 0;
+
+        if (colCount >= 10) {
+            defaultPot = 8;
+            defaultCur = 9;
+        } else if (colCount >= 4) {
+            defaultPot = 0;
+            defaultCur = 1;
+        }
+
+        potSelect.value = defaultPot;
+        curSelect.value = defaultCur;
+
+        if (metaBar && metaText) {
+            metaBar.classList.add('has-data');
+            metaText.innerText = `✓ Detected ${colCount} columns across ${lines.length - (hasHeader ? 1 : 0)} data rows.`;
+        }
+
+        // Immediately update preview plot with selected columns
+        updateLivePreviewFromColumns();
+    }
+}
+
+// Extract and plot experimental data for chosen columns immediately
+function updateLivePreviewFromColumns() {
+    if (!stagedFileContent) return;
+
+    const potCol = parseInt(document.getElementById('pot_col').value, 10);
+    const curCol = parseInt(document.getElementById('cur_col').value, 10);
+
+    const lines = stagedFileContent.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('#') && !l.trim().startsWith('//'));
+    if (lines.length === 0) return;
+
+    const delimiter = detectDelimiter(lines[0]);
+    const firstTokens = lines[0].split(delimiter).map(t => t.trim());
+    let startIndex = 0;
+    if (firstTokens.length > Math.max(potCol, curCol)) {
+        if (isNaN(parseFloat(firstTokens[potCol])) || isNaN(parseFloat(firstTokens[curCol]))) {
+            startIndex = 1;
+        }
+    }
+
+    const previewPot = [];
+    const previewCur = [];
+
+    for (let i = startIndex; i < lines.length; i++) {
+        const tokens = lines[i].split(delimiter);
+        if (tokens.length > Math.max(potCol, curCol)) {
+            const vStr = tokens[potCol].trim();
+            const cStr = tokens[curCol].trim();
+            if (vStr !== "" && cStr !== "") {
+                const v = parseFloat(vStr);
+                const c = parseFloat(cStr);
+                if (!isNaN(v) && !isNaN(c)) {
+                    previewPot.push(v);
+                    previewCur.push(c);
+                }
+            }
+        }
+    }
+
+    if (previewPot.length > 0) {
+        expPotential = previewPot;
+        expCurrent = previewCur;
+        initLiveChart(expPotential, expCurrent);
+        
+        document.getElementById('status-stage').innerText = 'Data Loaded & Ready';
+        document.getElementById('status-details').innerText = `Displaying ${previewPot.length} points from Col ${potCol} (V) & Col ${curCol} (I). Click Execute Optimization to fit.`;
+    }
+}
+
+// Column change event listeners
+const potSelectEl = document.getElementById('pot_col');
+const curSelectEl = document.getElementById('cur_col');
+if (potSelectEl) potSelectEl.addEventListener('change', updateLivePreviewFromColumns);
+if (curSelectEl) curSelectEl.addEventListener('change', updateLivePreviewFromColumns);
+
 // File Upload & Drag-Drop Handling
 const fileInput = document.getElementById('csv-file');
 const fileNameDisplay = document.getElementById('file-name-display');
@@ -175,6 +322,7 @@ function setLoadedFile(content, name) {
         fileNameDisplay.innerText = name;
         fileNameDisplay.classList.add('has-file');
     }
+    analyzeCSVAndPopulateColumns(content);
 }
 
 if (fileInput) {
@@ -235,6 +383,10 @@ if (cvForm) {
         formData.forEach((value, key) => {
             config[key] = value;
         });
+
+        // Make sure selected columns are integers
+        config.pot_col = parseInt(document.getElementById('pot_col').value, 10);
+        config.cur_col = parseInt(document.getElementById('cur_col').value, 10);
 
         // Determine execution engine
         const engineSelection = document.getElementById('engine-select').value;
@@ -378,7 +530,7 @@ function initLiveChart(potential, current) {
     };
 
     const layout = Object.assign({}, layoutConfig, {
-        title: { text: 'Cyclic Voltammogram Real-Time Fit', font: { size: 14 } },
+        title: { text: 'Cyclic Voltammogram Live View', font: { size: 14 } },
         xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)' }),
         yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current (A)' }),
         legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.8)' }

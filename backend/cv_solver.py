@@ -9,12 +9,18 @@ from jax.lax import scan
 import asyncio
 
 def load_and_preprocess_cv_data(df, pot_col, cur_col, scan_rate_v_s, skip_factor):
-    raw_potential = df.iloc[:, pot_col].dropna().values
-    raw_current = df.iloc[:, cur_col].dropna().values
+    if pot_col >= df.shape[1] or cur_col >= df.shape[1]:
+        raise ValueError(f"Selected column index (Potential: {pot_col}, Current: {cur_col}) exceeds total available columns ({df.shape[1]}).")
+        
+    s_pot = pd.to_numeric(df.iloc[:, pot_col], errors='coerce').dropna()
+    s_cur = pd.to_numeric(df.iloc[:, cur_col], errors='coerce').dropna()
     
-    min_len = min(len(raw_potential), len(raw_current))
-    raw_potential = raw_potential[:min_len]
-    raw_current = raw_current[:min_len]
+    common_idx = s_pot.index.intersection(s_cur.index)
+    raw_potential = s_pot.loc[common_idx].values.astype(np.float64)
+    raw_current = s_cur.loc[common_idx].values.astype(np.float64)
+    
+    if len(raw_potential) == 0:
+        raise ValueError(f"No valid numeric data found in Column {pot_col} (Potential) and Column {cur_col} (Current).")
     
     voltage_steps = np.abs(np.diff(raw_potential, prepend=raw_potential[0]))
     raw_time = np.cumsum(voltage_steps) / scan_rate_v_s

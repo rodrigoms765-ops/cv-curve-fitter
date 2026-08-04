@@ -50,18 +50,31 @@
                                 <input type="file" id="csv-file" name="file" accept=".csv,.txt" class="hidden-file-input">
                             </div>
 
-                            <!-- Data Mapping -->
+                            <!-- Data Mapping & Column Selector -->
                             <fieldset class="form-section">
-                                <legend>Data Mapping</legend>
+                                <legend>Column Selection</legend>
                                 <div class="input-grid">
                                     <div class="form-group">
-                                        <label for="pot_col">Potential Col Index (0-based)</label>
-                                        <input type="number" id="pot_col" name="pot_col" value="8" min="0" required>
+                                        <label for="pot_col">Potential (V) Column</label>
+                                        <select id="pot_col" name="pot_col" class="engine-dropdown" required>
+                                            <option value="8">Col 8: Potential (V) [Cycle 3]</option>
+                                            <option value="0">Col 0: Potential (V) [Cycle 1]</option>
+                                            <option value="4">Col 4: Potential (V) [Cycle 2]</option>
+                                            <option value="12">Col 12: Potential (V) [Cycle 4]</option>
+                                        </select>
                                     </div>
                                     <div class="form-group">
-                                        <label for="cur_col">Current Col Index (0-based)</label>
-                                        <input type="number" id="cur_col" name="cur_col" value="9" min="0" required>
+                                        <label for="cur_col">Current (A) Column</label>
+                                        <select id="cur_col" name="cur_col" class="engine-dropdown" required>
+                                            <option value="9">Col 9: Current (A) [Cycle 3]</option>
+                                            <option value="1">Col 1: Current (A) [Cycle 1]</option>
+                                            <option value="5">Col 5: Current (A) [Cycle 2]</option>
+                                            <option value="13">Col 13: Current (A) [Cycle 4]</option>
+                                        </select>
                                     </div>
+                                </div>
+                                <div class="column-meta-bar" id="column-meta-bar">
+                                    <span id="detected-columns-text">Upload a CSV to auto-detect columns</span>
                                 </div>
                             </fieldset>
 

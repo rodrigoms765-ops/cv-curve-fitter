@@ -615,28 +615,63 @@ function computeFastGradient(x, activeIndices, weights, computeLoss, currentLoss
     }
 }
 
-// CSV Parser and Preprocessor
+function detectDelimiter(line) {
+    const commas = (line.match(/,/g) || []).length;
+    const tabs = (line.match(/\t/g) || []).length;
+    const semicolons = (line.match(/;/g) || []).length;
+    if (tabs > commas && tabs > semicolons) return '\t';
+    if (semicolons > commas && semicolons > tabs) return ';';
+    return ',';
+}
+
+// CSV Parser and Preprocessor (Field-Safe and Delimiter-Aware)
 function parseAndPreprocessCSV(content, potCol, curCol, scanRate, skipFactor) {
-    const lines = content.split(/\r?\n/);
+    const rawLines = content.split(/\r?\n/);
+    const validLines = [];
+    for (let i = 0; i < rawLines.length; i++) {
+        const line = rawLines[i].trim();
+        if (line && !line.startsWith('#') && !line.startsWith('//')) {
+            validLines.push(line);
+        }
+    }
+
+    if (validLines.length === 0) throw new Error("Uploaded CSV file is empty.");
+
+    const delimiter = detectDelimiter(validLines[0]);
     const rawPot = [];
     const rawCur = [];
 
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line || line.startsWith('#') || line.startsWith('//')) continue;
-        const tokens = line.split(/[,\t;\s]+/).map(t => parseFloat(t));
+    // Check if line 0 is a header (non-numeric in target columns)
+    const firstTokens = validLines[0].split(delimiter).map(t => t.trim());
+    let startIndex = 0;
+    if (firstTokens.length > Math.max(potCol, curCol)) {
+        const testPot = parseFloat(firstTokens[potCol]);
+        const testCur = parseFloat(firstTokens[curCol]);
+        if (isNaN(testPot) || isNaN(testCur)) {
+            startIndex = 1;
+        }
+    }
+
+    for (let i = startIndex; i < validLines.length; i++) {
+        const tokens = validLines[i].split(delimiter);
         if (tokens.length > Math.max(potCol, curCol)) {
-            const v = tokens[potCol];
-            const c = tokens[curCol];
-            if (!isNaN(v) && !isNaN(c)) {
-                rawPot.push(v);
-                rawCur.push(c);
+            const vStr = tokens[potCol].trim();
+            const cStr = tokens[curCol].trim();
+            if (vStr !== "" && cStr !== "") {
+                const v = parseFloat(vStr);
+                const c = parseFloat(cStr);
+                if (!isNaN(v) && !isNaN(c)) {
+                    rawPot.push(v);
+                    rawCur.push(c);
+                }
             }
         }
     }
 
     const totalPts = Math.min(rawPot.length, rawCur.length);
-    if (totalPts === 0) throw new Error("No numeric data rows found in CSV.");
+    if (totalPts === 0) {
+        throw new Error(`No valid numeric data found in Column ${potCol} (Potential) and Column ${curCol} (Current). Please verify your column selection.`);
+    }
 
     const rawTime = new Float64Array(totalPts);
     rawTime[0] = 0.0;

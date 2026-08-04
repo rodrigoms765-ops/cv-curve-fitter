@@ -1,68 +1,44 @@
-# CV Curve Fitting Pro
+# Cyclic Voltammetry Diffusion Model Fitting
 
-A professional, high-performance web application for fitting Cyclic Voltammetry (CV) curves using a physics-based Fourier diffusion model.
+A client-side scientific tool for parameter estimation and physics-based diffusion fitting of Cyclic Voltammetry (CV) data. Computations run locally in the browser using WebAssembly (Pyodide, SciPy, and NumPy).
 
-Powered by **WebAssembly (Pyodide, SciPy, NumPy)** running **100% in-browser on the client's local CPU** — zero server costs, zero cold starts, and zero CPU throttling.
+## Live Application
 
----
-
-## 🌐 Live Website (GitHub Pages)
-
-The application is deployed directly on GitHub Pages:
-
-👉 **[https://rodrigoms765-ops.github.io/cv-curve-fitter/](https://rodrigoms765-ops.github.io/cv-curve-fitter/)**
+The tool is accessible at:
+**[https://rodrigoms765-ops.github.io/cv-curve-fitter/](https://rodrigoms765-ops.github.io/cv-curve-fitter/)**
 
 ---
 
-## ✨ Key Features
+## Method Summary
 
-- **⚡ Client-Side WebAssembly (WASM)**: Solves CV curves directly on your machine's CPU via Pyodide and SciPy L-BFGS-B optimization.
-- **🔄 4-Stage Physics Solver**:
-  1. *Stage 1*: Flat baseline calibration
-  2. *Stage 1.5*: Background exponential edge tails
-  3. *Stage 2*: Peak anchoring with constant diffusivity
-  4. *Stage 3*: Non-linear global polish
-- **📊 Real-Time Interactive Visualizations**: Live Plotly streaming of the fitted CV curve, Density of States (DOS), and potential-dependent Diffusivity $D(V)$.
-- **📥 Instant One-Click Demo**: Includes synthetic CV dataset for instant in-browser demonstration.
-- **🚀 Zero Backend Dependencies**: Hosted statically on GitHub Pages with automatic GitHub Actions deployment.
+The model fits experimental CV data through a 4-stage optimization procedure using L-BFGS-B minimization:
+1. **Baseline Extraction**: Identifies constant and background current offsets.
+2. **Background Exponential Tails**: Fits exponential charging behaviors near potential limits.
+3. **Peak Anchoring**: Optimizes discrete potential state distributions under baseline diffusivity.
+4. **Non-Linear Global Polish**: Simultaneously refines potential-dependent diffusivity $D(E) = D_0 \exp(\beta (E - E_0)^2)$ and state densities.
 
 ---
 
-## 🛠️ How to Enable GitHub Pages on Your Repo
+## Local Execution
 
-1. Open your repository on GitHub: **[github.com/rodrigoms765-ops/cv-curve-fitter](https://github.com/rodrigoms765-ops/cv-curve-fitter)**
-2. Go to **Settings** > **Pages** (in the left sidebar).
-3. Under **Build and deployment**:
-   - **Source**: Select **GitHub Actions** (or select *Deploy from a branch* -> `main` -> `/ (root)`).
-4. On your next push to `main`, GitHub Actions will automatically deploy your live site!
+To run locally without internet deployment:
 
----
-
-## 💻 Running Locally
-
-Because the application is 100% static, you can run it locally with any simple HTTP server:
-
-### Option 1: Python HTTP Server (Built-in)
 ```bash
-# In the project root directory
+# Start a local web server in the repository directory
 python -m http.server 8000
 ```
-Open your browser at **http://localhost:8000**.
 
-### Option 2: VS Code Live Server
-Right-click `index.html` and select **"Open with Live Server"**.
+Open `http://localhost:8000` in any modern web browser.
 
 ---
 
-## 📈 Usage Guide
+## Enabling GitHub Pages
 
-1. **Input Data**: Upload your experimental `.csv` CV file or click **⚡ Load Sample CV Data**.
-2. **Column Mapping**: Ensure `Potential Col #` and `Current Col #` match your CSV structure (0-indexed).
-3. **Set Parameters**: Adjust scan rate, film thickness, potential range, and peak modes if needed.
-4. **Execute**: Click **Run Multi-Stage Optimization**.
-5. **Analyze & Export**: Inspect extracted physical parameters ($D_0$, $\beta_{left}$, $\beta_{right}$, $V_0$) and download the result JSON report.
-
----
-
-## 📄 License
-MIT License
+If the live URL returns a 404 error:
+1. Open the repository on GitHub: **[github.com/rodrigoms765-ops/cv-curve-fitter](https://github.com/rodrigoms765-ops/cv-curve-fitter)**
+2. Navigate to **Settings** &rarr; **Pages** (in the left-hand menu).
+3. Under **Build and deployment**:
+   - Set **Source** to **Deploy from a branch**.
+   - Set **Branch** to `main` and **Folder** to `/ (root)`.
+   - Click **Save**.
+4. Allow 1–2 minutes for GitHub Pages to complete initial provisioning.

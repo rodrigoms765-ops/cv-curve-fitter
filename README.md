@@ -1,60 +1,68 @@
 # CV Curve Fitting Pro
 
-A professional, high-performance web application for fitting Cyclic Voltammetry (CV) curves using a physics-based diffusion model. Built with Python (JAX, SciPy, FastAPI) and Vanilla JS/HTML/CSS.
+A professional, high-performance web application for fitting Cyclic Voltammetry (CV) curves using a physics-based Fourier diffusion model.
 
-## Cloud Access
+Powered by **WebAssembly (Pyodide, SciPy, NumPy)** running **100% in-browser on the client's local CPU** — zero server costs, zero cold starts, and zero CPU throttling.
 
-You do not need to install this software to use it. A live cloud version is available here:
-**https://cv-curve-fitter.onrender.com**
+---
 
-If you wish to run it locally for maximum performance (which utilizes your local CPU's multiple cores and AVX instructions via JAX), follow the instructions below.
+## 🌐 Live Website (GitHub Pages)
 
-## Local Installation
+The application is deployed directly on GitHub Pages:
 
-### Prerequisites
-- Python 3.8 or higher installed on your machine.
-- Git (optional, for cloning).
+👉 **[https://rodrigoms765-ops.github.io/cv-curve-fitter/](https://rodrigoms765-ops.github.io/cv-curve-fitter/)**
 
-### Setup Instructions
+---
 
-1. **Clone or Download the Repository**
-   ```bash
-   git clone https://github.com/rodrigoms765-ops/cv-curve-fitter.git
-   cd cv-curve-fitter
-   ```
+## ✨ Key Features
 
-2. **Create a Virtual Environment (Recommended)**
-   ```bash
-   # Windows
-   python -m venv venv
-   venv\Scripts\activate
+- **⚡ Client-Side WebAssembly (WASM)**: Solves CV curves directly on your machine's CPU via Pyodide and SciPy L-BFGS-B optimization.
+- **🔄 4-Stage Physics Solver**:
+  1. *Stage 1*: Flat baseline calibration
+  2. *Stage 1.5*: Background exponential edge tails
+  3. *Stage 2*: Peak anchoring with constant diffusivity
+  4. *Stage 3*: Non-linear global polish
+- **📊 Real-Time Interactive Visualizations**: Live Plotly streaming of the fitted CV curve, Density of States (DOS), and potential-dependent Diffusivity $D(V)$.
+- **📥 Instant One-Click Demo**: Includes synthetic CV dataset for instant in-browser demonstration.
+- **🚀 Zero Backend Dependencies**: Hosted statically on GitHub Pages with automatic GitHub Actions deployment.
 
-   # Mac/Linux
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
+---
 
-3. **Install Dependencies**
-   Navigate to the `backend` folder and install the required Python packages.
-   ```bash
-   cd backend
-   pip install -r requirements.txt
-   ```
+## 🛠️ How to Enable GitHub Pages on Your Repo
 
-### Running the Application
+1. Open your repository on GitHub: **[github.com/rodrigoms765-ops/cv-curve-fitter](https://github.com/rodrigoms765-ops/cv-curve-fitter)**
+2. Go to **Settings** > **Pages** (in the left sidebar).
+3. Under **Build and deployment**:
+   - **Source**: Select **GitHub Actions** (or select *Deploy from a branch* -> `main` -> `/ (root)`).
+4. On your next push to `main`, GitHub Actions will automatically deploy your live site!
 
-Once the dependencies are installed, you can start the local server:
+---
 
+## 💻 Running Locally
+
+Because the application is 100% static, you can run it locally with any simple HTTP server:
+
+### Option 1: Python HTTP Server (Built-in)
 ```bash
-# Make sure you are in the backend directory
-uvicorn main:app --host 0.0.0.0 --port 8000
+# In the project root directory
+python -m http.server 8000
 ```
+Open your browser at **http://localhost:8000**.
 
-Open your web browser and navigate to: **http://localhost:8000**
-The UI will load automatically.
+### Option 2: VS Code Live Server
+Right-click `index.html` and select **"Open with Live Server"**.
 
-## Usage
-1. Upload your `.csv` CV data file.
-2. Ensure the "Potential Column Index" and "Current Column Index" correctly match your CSV file's structure (Note: 0-indexed).
-3. Adjust physical parameters and advanced settings (like Data Downsample Factor or Number of Fourier Modes) to balance speed and accuracy.
-4. Click **Run Optimization** and watch the real-time fit evolve.
+---
+
+## 📈 Usage Guide
+
+1. **Input Data**: Upload your experimental `.csv` CV file or click **⚡ Load Sample CV Data**.
+2. **Column Mapping**: Ensure `Potential Col #` and `Current Col #` match your CSV structure (0-indexed).
+3. **Set Parameters**: Adjust scan rate, film thickness, potential range, and peak modes if needed.
+4. **Execute**: Click **Run Multi-Stage Optimization**.
+5. **Analyze & Export**: Inspect extracted physical parameters ($D_0$, $\beta_{left}$, $\beta_{right}$, $V_0$) and download the result JSON report.
+
+---
+
+## 📄 License
+MIT License

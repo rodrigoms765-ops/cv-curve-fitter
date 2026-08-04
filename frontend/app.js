@@ -157,26 +157,6 @@ if (dropZone) {
     });
 }
 
-// Load Demo / Sample Dataset
-const loadDemoBtn = document.getElementById('load-demo-btn');
-if (loadDemoBtn) {
-    loadDemoBtn.addEventListener('click', () => {
-        if (typeof SAMPLE_CV_CSV !== 'undefined') {
-            setLoadedFile(SAMPLE_CV_CSV, "sample_cv_experiment.csv");
-            // Set matching form values for demo data
-            document.getElementById('pot_col').value = 1;
-            document.getElementById('cur_col').value = 2;
-            document.getElementById('v_min').value = -1.0;
-            document.getElementById('v_max').value = 1.0;
-            document.getElementById('scan_rate').value = 0.010;
-            document.getElementById('num_peaks').value = 25;
-            document.getElementById('max_iter').value = 50;
-            document.getElementById('num_terms').value = 25;
-            
-            document.getElementById('status-stage').innerText = 'Demo Data Loaded';
-            document.getElementById('status-details').innerText = 'Sample CV ready. Click "Execute Optimization" to run physics engine.';
-        }
-    });
 }
 
 // Form Submission & Solver Execution

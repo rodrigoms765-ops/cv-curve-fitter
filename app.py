@@ -2,7 +2,6 @@ import os
 import sys
 from pathlib import Path
 import gradio as gr
-import uvicorn
 
 # Add project root and backend folder to Python path
 ROOT_DIR = Path(__file__).resolve().parent
@@ -41,7 +40,9 @@ with gr.Blocks(title="CV Curve Fitting Pro - JAX Engine") as demo:
 # Mount Gradio onto the FastAPI app
 app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
 
-# Launch directly
+# Launch directly with ssr_mode=False so it runs purely on Python
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 7860))
-    demo.launch(server_name="0.0.0.0", server_port=port)
+    try:
+        demo.launch(ssr_mode=False)
+    except TypeError:
+        demo.launch()

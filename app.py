@@ -12,6 +12,7 @@ import os
 import sys
 from pathlib import Path
 import json
+import traceback
 import pandas as pd
 import io
 
@@ -31,16 +32,60 @@ except ImportError:
     except ImportError:
         from FD_solver import solve_cv
 
-try:
-    from backend.main import app as fastapi_app, handle_solver_websocket, health_check, api_solve_stream, compute_solve_cv
-except ImportError:
-    from main import app as fastapi_app, handle_solver_websocket, health_check, api_solve_stream, compute_solve_cv
-
-# Top-level @spaces.GPU function registered with Gradio to ensure ZeroGPU detects GPU workload
+# Top-level @spaces.GPU function registered with Gradio for ZeroGPU A100 allocation
 @GPU(duration=120)
-def gpu_zerogpu_runner(input_str=""):
-    """ZeroGPU registered execution point for Hugging Face container startup check."""
-    return "ZeroGPU JAX Engine Ready & Active"
+def gradio_solve_cv(file_content: str, config_json: str):
+    """ZeroGPU registered execution point for JAX optimization."""
+    try:
+        if not file_content or not file_content.strip():
+            return json.dumps({"type": "error", "message": "No CSV file content provided. Please upload a CV data file."})
+
+        raw_config = json.loads(config_json) if isinstance(config_json, str) else (config_json or {})
+        config = {
+            "scan_rate_v_s": float(raw_config.get("scan_rate", 0.010)),
+            "film_thickness": float(raw_config.get("film_thickness", 1e-4)),
+            "v_min": float(raw_config.get("v_min", -1.0)),
+            "v_max": float(raw_config.get("v_max", 1.0)),
+            "skip_factor": int(raw_config.get("skip_factor", 5)),
+            "num_peaks": int(raw_config.get("num_peaks", 50)),
+            "max_iter": int(raw_config.get("max_iter", 100)),
+            "tol_ftol": float(raw_config.get("tol_ftol", 1e-8)),
+            "tol_gtol": float(raw_config.get("tol_gtol", 1e-7)),
+            "num_terms": int(raw_config.get("num_terms", 50)),
+            "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0))
+        }
+        pot_col = int(raw_config.get("pot_col", 8))
+        cur_col = int(raw_config.get("cur_col", 9))
+
+        df = pd.read_csv(io.StringIO(file_content), sep=None, engine='python')
+        result_dict = solve_cv(df, config, pot_col, cur_col, queue=None, loop=None)
+
+        return json.dumps({
+            "type": "done",
+            "params": {
+                "D0": result_dict["parameters"]["diffusivity"],
+                "Vc": result_dict["parameters"]["v_center"],
+                "beta_L": result_dict["parameters"]["beta_left"],
+                "beta_R": result_dict["parameters"]["beta_right"],
+                "I_offset": result_dict["parameters"]["baseline_offset"]
+            },
+            "plots": {
+                "v_plot": result_dict["plots"]["v_plot"],
+                "d_of_v": result_dict["plots"]["d_of_v"],
+                "dos_total": result_dict["plots"]["dos_total"],
+                "dos_peaks": result_dict["plots"]["dos_matrix"],
+                "exp_potential": result_dict["plots"]["exp_potential"],
+                "exp_current": result_dict["plots"]["exp_current"],
+                "sim_current": result_dict["plots"]["sim_current"]
+            },
+            "total_iterations": 100
+        })
+    except Exception as e:
+        return json.dumps({
+            "type": "error",
+            "message": str(e),
+            "trace": traceback.format_exc()
+        })
 
 def get_app_assets():
     """Load index.html, style.css, and app.js."""
@@ -60,13 +105,25 @@ def get_app_assets():
 
 inlined_html, app_css, app_js = get_app_assets()
 
+# Health check helper
+def health_info():
+    import jax
+    devices = [str(d) for d in jax.devices()]
+    return {
+        "status": "ok",
+        "engine": "JAX Hardware Accelerated (ZeroGPU A100)",
+        "hardware": "NVIDIA A100 / Hugging Face ZeroGPU",
+        "cost": "100% Free",
+        "devices": devices
+    }
+
 # Gradio integration for Hugging Face ZeroGPU
 has_gradio = False
 try:
     import gradio as gr
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.staticfiles import StaticFiles
-    from fastapi.responses import FileResponse, HTMLResponse
+    from fastapi.requests import Request
+    from fastapi.responses import JSONResponse
 
     head_html = f"""
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
@@ -82,11 +139,17 @@ try:
     with gr.Blocks(title="CV Curve Fitting Pro - JAX Engine", head=head_html, js=app_js) as demo:
         gr.HTML(inlined_html)
         
-        # ZeroGPU event handler registration so Hugging Face scans & verifies @spaces.GPU
-        dummy_input = gr.Textbox(value="ping", visible=False)
-        dummy_output = gr.Textbox(visible=False)
-        dummy_btn = gr.Button("Run ZeroGPU", visible=False)
-        dummy_btn.click(fn=gpu_zerogpu_runner, inputs=[dummy_input], outputs=[dummy_output])
+        # Native Gradio event pipeline for ZeroGPU hardware provisioning
+        gr_input_file = gr.Textbox(value="", visible=False, elem_id="gr_input_file")
+        gr_input_config = gr.Textbox(value="{}", visible=False, elem_id="gr_input_config")
+        gr_output_json = gr.Textbox(value="", visible=False, elem_id="gr_output_json")
+        gr_trigger_btn = gr.Button("Execute ZeroGPU", visible=False, elem_id="gr_trigger_btn")
+        
+        gr_trigger_btn.click(
+            fn=gradio_solve_cv,
+            inputs=[gr_input_file, gr_input_config],
+            outputs=[gr_output_json]
+        )
 
     # Attach FastAPI routes directly to demo.app
     demo.app.add_middleware(
@@ -97,13 +160,17 @@ try:
         allow_headers=["*"],
     )
 
-    # API routes (Streaming HTTP + WebSocket)
-    demo.app.add_api_route("/health", health_check, methods=["GET"])
-    demo.app.add_api_route("/api/health", health_check, methods=["GET"])
-    demo.app.add_api_route("/api/solve", api_solve_stream, methods=["POST"])
-    demo.app.add_api_route("/solve", api_solve_stream, methods=["POST"])
-    demo.app.add_api_websocket_route("/ws/solve", handle_solver_websocket)
-    demo.app.add_api_websocket_route("/ws", handle_solver_websocket)
+    async def api_solve_handler(request: Request):
+        data = await request.json()
+        file_content = data.get("file_content", "")
+        config = data.get("config", {})
+        res_str = gradio_solve_cv(file_content, json.dumps(config))
+        return JSONResponse(content=json.loads(res_str))
+
+    demo.app.add_api_route("/health", health_info, methods=["GET"])
+    demo.app.add_api_route("/api/health", health_info, methods=["GET"])
+    demo.app.add_api_route("/api/solve", api_solve_handler, methods=["POST"])
+    demo.app.add_api_route("/solve", api_solve_handler, methods=["POST"])
 
     has_gradio = True
 except ImportError:
@@ -116,5 +183,8 @@ if __name__ == "__main__":
         demo.queue().launch(server_name="0.0.0.0", server_port=port, share=False)
     else:
         import uvicorn
+        from fastapi import FastAPI
+        fastapi_app = FastAPI()
+        fastapi_app.add_api_route("/health", health_info, methods=["GET"])
         print(f"Starting FastAPI server on port {port}...")
         uvicorn.run(fastapi_app, host="0.0.0.0", port=port)

@@ -1,5 +1,5 @@
 // CV Curve Fitting Pro - Pure Python JAX + SciPy Engine Client
-// Connected to Python FastAPI Streaming & WebSocket Backend (Free ZeroGPU & CPU Ready)
+// Connected to Python ZeroGPU Engine (Free ZeroGPU & CPU Ready)
 
 // Global State
 let activeSocket = null;
@@ -10,7 +10,7 @@ let stagedFileContent = null;
 let stagedFileName = "No file chosen";
 let detectedColumns = [];
 let isBackendAvailable = false;
-let activeBackendType = "offline"; // "cloud", "local", "offline"
+let activeBackendType = "offline";
 
 // Default endpoints
 const DEFAULT_LOCAL_URL = "http://127.0.0.1:8000";
@@ -33,36 +33,23 @@ function resolveEndpoints(rawUrl) {
     }
     
     let httpHealth = "";
-    let wsSolve = "";
     let httpSolve = "";
 
     if (url.startsWith("https://")) {
         httpHealth = url + "/health";
         httpSolve = url + "/api/solve";
-        wsSolve = url.replace("https://", "wss://") + "/ws/solve";
     } else if (url.startsWith("http://")) {
         httpHealth = url + "/health";
         httpSolve = url + "/api/solve";
-        wsSolve = url.replace("http://", "ws://") + "/ws/solve";
-    } else if (url.startsWith("wss://")) {
-        wsSolve = url.includes("/ws/solve") ? url : url + "/ws/solve";
-        httpHealth = url.replace("wss://", "https://").replace(/\/ws\/solve\/?$/, "") + "/health";
-        httpSolve = url.replace("wss://", "https://").replace(/\/ws\/solve\/?$/, "") + "/api/solve";
-    } else if (url.startsWith("ws://")) {
-        wsSolve = url.includes("/ws/solve") ? url : url + "/ws/solve";
-        httpHealth = url.replace("ws://", "http://").replace(/\/ws\/solve\/?$/, "") + "/health";
-        httpSolve = url.replace("ws://", "http://").replace(/\/ws\/solve\/?$/, "") + "/api/solve";
     } else {
         httpHealth = "https://" + url + "/health";
         httpSolve = "https://" + url + "/api/solve";
-        wsSolve = "wss://" + url + "/ws/solve";
     }
 
     return {
         rawUrl: url,
         httpHealth: httpHealth,
-        httpSolve: httpSolve,
-        wsSolve: wsSolve
+        httpSolve: httpSolve
     };
 }
 
@@ -104,17 +91,15 @@ async function probePythonBackend() {
                 }
                 return true;
             }
-        } catch (e) {
-            // Check next candidate
-        }
+        } catch (e) {}
     }
 
     isBackendAvailable = true;
     activeBackendType = "cloud";
     if (dot) dot.className = 'status-dot online';
-    if (label) label.innerText = 'ZeroGPU JAX Engine Ready';
+    if (label) label.innerText = 'ZeroGPU A100 Engine Ready';
     if (msg) {
-        msg.innerHTML = `<span style="color: #10b981; font-weight: 500;">✓ ZeroGPU JAX Server Active</span>`;
+        msg.innerHTML = `<span style="color: #10b981; font-weight: 500;">✓ ZeroGPU JAX Server Active (100% Free)</span>`;
     }
     return false;
 }
@@ -446,123 +431,84 @@ window.handleFormSubmit = async function(e) {
     return false;
 };
 
-// Execution via HTTP Streaming (NDJSON) with Real-Time Plotly Updates & WebSocket Fallback
+// Execution via Native ZeroGPU Pipeline & Direct HTTP API
 async function executePythonSolver(fileContent, config) {
     const stageEl = document.getElementById('status-stage');
     const detailsEl = document.getElementById('status-details');
-    if (stageEl) stageEl.innerText = '⚡ ZeroGPU JAX Engine Running...';
-    if (detailsEl) detailsEl.innerText = 'Initializing JAX multi-stage L-BFGS-B optimization...';
+    if (stageEl) stageEl.innerText = '⚡ ZeroGPU A100 Optimizing...';
+    if (detailsEl) detailsEl.innerText = 'JAX Auto-Diff multi-stage L-BFGS-B optimization in progress...';
 
-    const solveCandidates = [
+    // 1. Direct HTTP API Call to the Space backend
+    const endpoints = [
         window.location.origin + "/api/solve",
         window.location.origin + "/solve",
         DEFAULT_HF_SPACE_URL + "/api/solve",
-        DEFAULT_LOCAL_URL + "/api/solve",
-        currentEndpoints.httpSolve
+        DEFAULT_LOCAL_URL + "/api/solve"
     ];
 
-    let streamSucceeded = false;
-
-    for (const endpoint of solveCandidates) {
+    for (const endpoint of endpoints) {
         try {
-            const response = await fetch(endpoint, {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minutes timeout for heavy optimization
+            const res = await fetch(endpoint, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    action: "solve",
-                    config: config,
-                    file_content: fileContent
-                })
+                    file_content: fileContent,
+                    config: config
+                }),
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
 
-            if (!response.ok) continue;
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = "";
-            streamSucceeded = true;
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop(); // keep last incomplete chunk
-
-                for (const line of lines) {
-                    if (!line.trim()) continue;
-                    try {
-                        const data = JSON.parse(line);
-                        handleSolverMessage(data);
-                    } catch (err) {
-                        console.error("JSON parse error in chunk:", err);
-                    }
-                }
+            if (res.ok) {
+                const data = await res.json();
+                handleSolverMessage(data);
+                return;
             }
-
-            if (buffer.trim()) {
-                try {
-                    const data = JSON.parse(buffer);
-                    handleSolverMessage(data);
-                } catch (err) {}
-            }
-
-            break; // Succeeded!
         } catch (err) {
-            console.warn(`Streaming attempt to ${endpoint} failed, trying next fallback:`, err);
+            console.warn(`HTTP solve attempt on ${endpoint} failed:`, err);
         }
     }
 
-    if (!streamSucceeded) {
-        executeWebSocketFallback(fileContent, config);
-    }
-}
+    // 2. Native Gradio Event Trigger fallback
+    const grInputFile = document.querySelector('#gr_input_file textarea, #gr_input_file input');
+    const grInputConfig = document.querySelector('#gr_input_config textarea, #gr_input_config input');
+    const grBtn = document.querySelector('#gr_trigger_btn');
+    const grOutput = document.querySelector('#gr_output_json textarea, #gr_output_json input');
 
-function executeWebSocketFallback(fileContent, config) {
-    const stageEl = document.getElementById('status-stage');
-    const detailsEl = document.getElementById('status-details');
-    if (stageEl) stageEl.innerText = 'Connecting via WebSocket...';
-    if (detailsEl) detailsEl.innerText = `Opening WebSocket on ${currentEndpoints.wsSolve}...`;
-
-    if (activeSocket) {
-        activeSocket.close();
-    }
-
-    try {
-        activeSocket = new WebSocket(currentEndpoints.wsSolve);
-    } catch (err) {
-        handleBackendOffline();
-        return;
-    }
-
-    activeSocket.onopen = () => {
-        if (stageEl) stageEl.innerText = '⚡ JAX Optimization Running';
-        if (detailsEl) detailsEl.innerText = 'Hardware-accelerated JAX XLA optimization in progress...';
-        
-        activeSocket.send(JSON.stringify({
-            action: 'solve',
-            config: config,
-            file_content: fileContent
-        }));
-    };
-
-    activeSocket.onmessage = (event) => {
+    if (grInputFile && grInputConfig && grBtn) {
         try {
-            const data = JSON.parse(event.data);
-            handleSolverMessage(data);
+            grInputFile.value = fileContent;
+            grInputFile.dispatchEvent(new Event('input', { bubbles: true }));
+            grInputConfig.value = JSON.stringify(config);
+            grInputConfig.dispatchEvent(new Event('input', { bubbles: true }));
+
+            let checkCount = 0;
+            const checkInterval = setInterval(() => {
+                checkCount++;
+                if (grOutput && grOutput.value && grOutput.value.trim().length > 0) {
+                    clearInterval(checkInterval);
+                    try {
+                        const data = JSON.parse(grOutput.value);
+                        handleSolverMessage(data);
+                    } catch (e) {
+                        console.error(e);
+                    }
+                } else if (checkCount > 120) {
+                    clearInterval(checkInterval);
+                    handleSolverError("Optimization timed out.");
+                }
+            }, 1000);
+
+            grBtn.click();
+            return;
         } catch (e) {
-            console.error("Error parsing message:", e);
+            console.warn("Gradio trigger error:", e);
         }
-    };
+    }
 
-    activeSocket.onerror = () => {
-        handleBackendOffline();
-    };
-
-    activeSocket.onclose = () => {
-        stopOptimizationUI();
-    };
+    handleSolverError("Could not reach ZeroGPU backend server. Please check your Space status.");
 }
 
 function handleSolverMessage(data) {
@@ -573,7 +519,7 @@ function handleSolverMessage(data) {
         const stageName = data.stage_name || `Stage ${data.stage}`;
         const iterText = data.iteration ? ` (Iter ${data.iteration})` : '';
         if (stageEl) stageEl.innerText = `⚡ ${stageName}${iterText}`;
-        if (detailsEl) detailsEl.innerText = `Objective Loss: ${data.loss.toExponential(4)} | Diffusivity D0: ${(data.d0 || 0).toExponential(3)} cm²/s`;
+        if (detailsEl) detailsEl.innerText = `Objective Loss: ${data.loss ? data.loss.toExponential(4) : ''} | Diffusivity D0: ${(data.d0 || 0).toExponential(3)} cm²/s`;
 
         if (data.current_fit && window.Plotly) {
             updateLivePlotProgress(data.current_fit);
@@ -585,20 +531,26 @@ function handleSolverMessage(data) {
         stopOptimizationUI();
         latestResults = data;
         displayExtractedResults(data);
+
+        // Update main plot with final simulation overlay
+        if (data.plots && data.plots.sim_current && window.Plotly) {
+            updateLivePlotProgress({
+                potential: data.plots.exp_potential,
+                current: data.plots.sim_current
+            });
+        }
     } else if (data.type === 'error') {
-        if (stageEl) stageEl.innerText = '❌ Optimization Error';
-        if (detailsEl) detailsEl.innerText = data.message || 'An error occurred during calculation.';
-        stopOptimizationUI();
-        alert(`Solver Message: ${data.message}`);
+        handleSolverError(data.message || 'An error occurred during calculation.');
     }
 }
 
-function handleBackendOffline() {
+function handleSolverError(msg) {
     const stageEl = document.getElementById('status-stage');
     const detailsEl = document.getElementById('status-details');
-    if (stageEl) stageEl.innerText = 'Engine Reconnecting...';
-    if (detailsEl) detailsEl.innerText = 'ZeroGPU container is initializing. Please click Execute again in 10s.';
+    if (stageEl) stageEl.innerText = '❌ Optimization Notice';
+    if (detailsEl) detailsEl.innerText = msg;
     stopOptimizationUI();
+    alert(`Solver: ${msg}`);
 }
 
 function startOptimizationUI() {

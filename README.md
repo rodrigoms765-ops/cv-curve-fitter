@@ -1,3 +1,14 @@
+---
+title: Cv Solver Api
+emoji: ⚡
+colorFrom: blue
+colorTo: indigo
+sdk: gradio
+sdk_version: 4.44.0
+app_file: app.py
+pinned: false
+---
+
 # Cyclic Voltammetry Diffusion Model Fitting (Python JAX + SciPy)
 
 A high-performance physics-based simulation and optimization engine for Cyclic Voltammetry (CV) data analysis.
@@ -35,4 +46,3 @@ The model fits experimental CV data through a 4-stage optimization procedure usi
 2. **Stage 1.5 (Background Exponential Tails)**: Fits exponential Tafel charging behaviors near potential limits.
 3. **Stage 2 (Peak Anchoring)**: Optimizes discrete potential state distributions under baseline diffusivity.
 4. **Stage 3 (Non-Linear Global Polish)**: Simultaneously refines potential-dependent diffusivity $D(V) = D_0 \exp(\beta (V - V_0)^2)$ and state densities.
-

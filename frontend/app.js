@@ -597,10 +597,8 @@ function executePythonSolver(fileContent, config) {
 
 function handleBackendOffline() {
     document.getElementById('status-stage').innerText = '⚠️ Python Backend Offline';
-    document.getElementById('status-details').innerText = 'Could not reach the Python server at ' + currentEndpoints.rawUrl + '. Please check the Server Endpoint or launch your backend.';
+    document.getElementById('status-details').innerText = 'Connecting to Python server at ' + currentEndpoints.rawUrl + '... (If the cloud server was asleep, it may take 15s to wake up)';
     resetUI();
-    const modal = document.getElementById('backend-modal');
-    if (modal) modal.classList.remove('hidden');
 }
 
 // Universal Message Handler for Solver Messages (both Worker & WebSocket)

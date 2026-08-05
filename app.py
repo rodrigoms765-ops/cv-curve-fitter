@@ -2,6 +2,7 @@ import os
 import sys
 from pathlib import Path
 import gradio as gr
+from fastapi.middleware.cors import CORSMiddleware
 
 # Add project root and backend folder to Python path
 ROOT_DIR = Path(__file__).resolve().parent
@@ -36,6 +37,15 @@ with gr.Blocks(title="CV Curve Fitting Pro - JAX Engine") as demo:
         </div>
     </div>
     """)
+
+# Add Cross-Origin Resource Sharing (CORS) for external web clients (e.g. GitHub Pages)
+demo.app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Attach FastAPI API routes and WebSocket endpoints directly to demo.app
 demo.app.add_api_route("/health", health_check, methods=["GET"])

@@ -63,4 +63,4 @@ demo.app.add_api_websocket_route("/ws/solve", handle_solver_websocket)
 demo.app.add_api_websocket_route("/ws", handle_solver_websocket)
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    demo.launch(server_name="0.0.0.0", server_port=7860, ssr_mode=False)

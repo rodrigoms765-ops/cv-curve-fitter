@@ -1,9 +1,7 @@
-// CV Curve Fitting Pro - Dual-Mode Client Controller & Visualizer
-// Seamless Hybrid: Fast Local JAX Backend (ws://127.0.0.1:8000) with In-Browser Worker Fallback
-// Features: Auto CSV Column Detection, Cycle Presets, Live Pre-Fit Plotting, Multi-Engine Switching
+// CV Curve Fitting Pro - Pure Python JAX + SciPy Engine Client
+// Connected to Python FastAPI / WebSocket Backend (ws://127.0.0.1:8000)
 
 // Global State
-let solverWorker = null;
 let activeSocket = null;
 let expPotential = [];
 let expCurrent = [];
@@ -45,29 +43,7 @@ const layoutConfig = {
     margin: { t: 30, r: 30, l: 70, b: 60 }
 };
 
-// Initialize In-Browser Web Worker Fallback
-function initWorker() {
-    if (solverWorker) solverWorker.terminate();
-    solverWorker = new Worker('solver_worker.js');
-    
-    solverWorker.onmessage = (e) => {
-        try {
-            const msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-            handleSolverMessage(msg);
-        } catch (err) {
-            console.error("Worker message parse error:", err);
-        }
-    };
-    
-    solverWorker.onerror = (err) => {
-        console.error("Solver worker error:", err);
-        document.getElementById('status-stage').innerText = 'Worker Error';
-        document.getElementById('status-details').innerText = 'In-browser solver encountered an error.';
-        resetUI();
-    };
-}
-
-// Probe Local JAX Backend
+// Probe Local Python Backend
 async function probeLocalBackend() {
     const dot = document.getElementById('engine-dot');
     const label = document.getElementById('engine-label');
@@ -82,9 +58,9 @@ async function probeLocalBackend() {
         if (res.ok) {
             isLocalBackendAvailable = true;
             if (dot) dot.className = 'status-dot online';
-            if (label) label.innerText = '⚡ Local JAX Active';
+            if (label) label.innerText = '⚡ Python JAX Backend Online';
             if (msg) {
-                msg.innerText = '⚡ Local JAX Backend Connected (Port 8000)';
+                msg.innerText = '⚡ Python JAX Backend Connected (Port 8000)';
                 msg.className = 'engine-status-msg online';
             }
             return true;
@@ -95,9 +71,9 @@ async function probeLocalBackend() {
 
     isLocalBackendAvailable = false;
     if (dot) dot.className = 'status-dot offline';
-    if (label) label.innerText = '🌐 In-Browser Engine';
+    if (label) label.innerText = '⚠️ Python Backend Offline';
     if (msg) {
-        msg.innerText = 'Local server offline. Using in-browser engine.';
+        msg.innerText = 'Python server offline. Run "python backend/main.py" or start_backend.bat';
         msg.className = 'engine-status-msg';
     }
     return false;
@@ -105,7 +81,7 @@ async function probeLocalBackend() {
 
 // Check backend on load and periodically
 probeLocalBackend();
-setInterval(probeLocalBackend, 10000);
+setInterval(probeLocalBackend, 5000);
 
 // Advanced Settings Accordion Toggle
 const advToggle = document.getElementById('advanced-toggle');
@@ -471,24 +447,15 @@ if (cvForm) {
         config.pot_col = parseInt(document.getElementById('pot_col').value, 10);
         config.cur_col = parseInt(document.getElementById('cur_col').value, 10);
 
-        // Determine execution engine
-        const engineSelection = document.getElementById('engine-select').value;
-        const useLocalBackend = (engineSelection === 'local') || (engineSelection === 'auto' && isLocalBackendAvailable);
-
         startOptimizationUI();
-
-        if (useLocalBackend) {
-            executeLocalJAXSolver(stagedFileContent, config);
-        } else {
-            executeInBrowserSolver(stagedFileContent, config);
-        }
+        executePythonSolver(stagedFileContent, config);
     });
 }
 
-// Execution via Local JAX WebSocket
-function executeLocalJAXSolver(fileContent, config) {
-    document.getElementById('status-stage').innerText = 'Connecting to Local JAX Backend...';
-    document.getElementById('status-details').innerText = 'Initializing WebSocket on ws://127.0.0.1:8000...';
+// Execution via Python JAX / SciPy Backend WebSocket
+function executePythonSolver(fileContent, config) {
+    document.getElementById('status-stage').innerText = 'Connecting to Python Backend...';
+    document.getElementById('status-details').innerText = 'Initializing WebSocket connection on ws://127.0.0.1:8000/ws/solve...';
 
     if (activeSocket) {
         activeSocket.close();
@@ -497,14 +464,14 @@ function executeLocalJAXSolver(fileContent, config) {
     try {
         activeSocket = new WebSocket(BACKEND_URL_WS);
     } catch (err) {
-        console.warn("WebSocket initialization failed, falling back to In-Browser:", err);
-        fallbackToBrowserSolver(fileContent, config, "Could not open WebSocket. Falling back to in-browser engine.");
+        console.error("WebSocket initialization failed:", err);
+        handleBackendOffline();
         return;
     }
 
     activeSocket.onopen = () => {
-        document.getElementById('status-stage').innerText = '⚡ JAX Engine Running';
-        document.getElementById('status-details').innerText = 'Hardware-accelerated XLA optimization in progress...';
+        document.getElementById('status-stage').innerText = '⚡ Python JAX Engine Running';
+        document.getElementById('status-details').innerText = 'Hardware-accelerated XLA optimization with L-BFGS-B in progress...';
         
         activeSocket.send(JSON.stringify({
             action: 'solve',
@@ -524,7 +491,7 @@ function executeLocalJAXSolver(fileContent, config) {
 
     activeSocket.onerror = (err) => {
         console.warn("WebSocket error:", err);
-        fallbackToBrowserSolver(fileContent, config, "Local JAX server connection failed. Switched to In-Browser solver.");
+        handleBackendOffline();
     };
 
     activeSocket.onclose = () => {
@@ -532,24 +499,12 @@ function executeLocalJAXSolver(fileContent, config) {
     };
 }
 
-// Fallback Helper
-function fallbackToBrowserSolver(fileContent, config, notice) {
-    document.getElementById('status-details').innerText = notice;
-    executeInBrowserSolver(fileContent, config);
-}
-
-// Execution via In-Browser Web Worker
-function executeInBrowserSolver(fileContent, config) {
-    if (!solverWorker) initWorker();
-    
-    document.getElementById('status-stage').innerText = '🌐 In-Browser Solver Running';
-    document.getElementById('status-details').innerText = 'Executing physics diffusion simulation in Web Worker...';
-
-    solverWorker.postMessage({
-        action: 'solve',
-        file_content: fileContent,
-        config: config
-    });
+function handleBackendOffline() {
+    document.getElementById('status-stage').innerText = '⚠️ Python Backend Not Running';
+    document.getElementById('status-details').innerText = 'Please launch the Python backend server: run "python backend/main.py" or double-click "start_backend.bat".';
+    resetUI();
+    const modal = document.getElementById('backend-modal');
+    if (modal) modal.classList.remove('hidden');
 }
 
 // Universal Message Handler for Solver Messages (both Worker & WebSocket)

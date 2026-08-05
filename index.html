@@ -179,18 +179,16 @@
                                 </div>
                             </div>
 
-                            <!-- Compute Engine Selection -->
+                            <!-- Compute Engine Indicator -->
                             <fieldset class="form-section backend-section">
-                                <legend>Compute Engine</legend>
+                                <legend>Solver Architecture</legend>
                                 <div class="form-group">
-                                    <select id="engine-select" name="engine" class="engine-dropdown">
-                                        <option value="auto" selected>⚡ Auto (Detect High-Speed Local JAX)</option>
-                                        <option value="local">⚡ Local JAX Backend (ws://127.0.0.1:8000)</option>
-                                        <option value="browser">🌐 In-Browser Engine (Client Sandbox)</option>
-                                    </select>
-                                    <div class="engine-help-row">
-                                        <span class="engine-status-msg" id="engine-status-msg">Probing local JAX engine...</span>
-                                        <button type="button" class="btn-text-link" id="backend-help-link">How to start JAX backend?</button>
+                                    <div class="engine-badge-row">
+                                        <span class="badge-tag-online">🐍 100% Pure Python JAX + SciPy Engine</span>
+                                    </div>
+                                    <div class="engine-help-row" style="margin-top: 8px;">
+                                        <span class="engine-status-msg" id="engine-status-msg">Probing Python solver server...</span>
+                                        <button type="button" class="btn-text-link" id="backend-help-link">Server Setup Guide</button>
                                     </div>
                                 </div>
                             </fieldset>

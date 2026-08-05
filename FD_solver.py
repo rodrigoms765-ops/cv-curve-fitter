@@ -20,11 +20,11 @@ from jax.lax import scan
 USER_CONFIG = {
     "filepath": r"C:\Users\rodri\OneDrive\Documents\Chem Project\Rodrigo CV\2000rpm_1p0gL_3cm2\2p0k 30s 1p0g 3cm2_-1V1V_10mVs.csv",
     "scan_rate_v_s": 0.010, #from file
-    "skip_factor": 10, #skipping data points
+    "skip_factor": 5, #skipping data points
     "film_thickness": 1e-4, #L = 1e-7 experimentally
     "v_min": -1.0, #scan region min
     "v_max": 1.0, #scan region max
-    "num_peaks": 30 # num of gaussians forming DOS
+    "num_peaks": 50 # num of gaussians forming DOS
 }
 
 OPTIMIZER_CONFIG = {

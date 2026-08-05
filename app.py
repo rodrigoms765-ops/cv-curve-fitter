@@ -32,9 +32,9 @@ except ImportError:
         from FD_solver import solve_cv
 
 try:
-    from backend.main import app as fastapi_app, handle_solver_websocket, health_check, compute_solve_cv
+    from backend.main import app as fastapi_app, handle_solver_websocket, health_check, api_solve_stream, compute_solve_cv
 except ImportError:
-    from main import app as fastapi_app, handle_solver_websocket, health_check, compute_solve_cv
+    from main import app as fastapi_app, handle_solver_websocket, health_check, api_solve_stream, compute_solve_cv
 
 # Top-level @spaces.GPU function registered with Gradio to ensure ZeroGPU detects GPU workload
 @GPU(duration=120)
@@ -97,9 +97,11 @@ try:
         allow_headers=["*"],
     )
 
-    # API routes
+    # API routes (Streaming HTTP + WebSocket)
     demo.app.add_api_route("/health", health_check, methods=["GET"])
     demo.app.add_api_route("/api/health", health_check, methods=["GET"])
+    demo.app.add_api_route("/api/solve", api_solve_stream, methods=["POST"])
+    demo.app.add_api_route("/solve", api_solve_stream, methods=["POST"])
     demo.app.add_api_websocket_route("/ws/solve", handle_solver_websocket)
     demo.app.add_api_websocket_route("/ws", handle_solver_websocket)
 

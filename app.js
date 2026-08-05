@@ -1,5 +1,5 @@
 // CV Curve Fitting Pro - Pure Python JAX + SciPy Engine Client
-// Connected to Python FastAPI / WebSocket Backend (Free ZeroGPU & CPU Ready)
+// Connected to Python FastAPI Streaming & WebSocket Backend (Free ZeroGPU & CPU Ready)
 
 // Global State
 let activeSocket = null;
@@ -34,27 +34,34 @@ function resolveEndpoints(rawUrl) {
     
     let httpHealth = "";
     let wsSolve = "";
+    let httpSolve = "";
 
     if (url.startsWith("https://")) {
         httpHealth = url + "/health";
+        httpSolve = url + "/api/solve";
         wsSolve = url.replace("https://", "wss://") + "/ws/solve";
     } else if (url.startsWith("http://")) {
         httpHealth = url + "/health";
+        httpSolve = url + "/api/solve";
         wsSolve = url.replace("http://", "ws://") + "/ws/solve";
     } else if (url.startsWith("wss://")) {
         wsSolve = url.includes("/ws/solve") ? url : url + "/ws/solve";
         httpHealth = url.replace("wss://", "https://").replace(/\/ws\/solve\/?$/, "") + "/health";
+        httpSolve = url.replace("wss://", "https://").replace(/\/ws\/solve\/?$/, "") + "/api/solve";
     } else if (url.startsWith("ws://")) {
         wsSolve = url.includes("/ws/solve") ? url : url + "/ws/solve";
         httpHealth = url.replace("ws://", "http://").replace(/\/ws\/solve\/?$/, "") + "/health";
+        httpSolve = url.replace("ws://", "http://").replace(/\/ws\/solve\/?$/, "") + "/api/solve";
     } else {
         httpHealth = "https://" + url + "/health";
+        httpSolve = "https://" + url + "/api/solve";
         wsSolve = "wss://" + url + "/ws/solve";
     }
 
     return {
         rawUrl: url,
         httpHealth: httpHealth,
+        httpSolve: httpSolve,
         wsSolve: wsSolve
     };
 }
@@ -102,7 +109,7 @@ async function probePythonBackend() {
         }
     }
 
-    isBackendAvailable = true; // allow optimistic connection
+    isBackendAvailable = true;
     activeBackendType = "cloud";
     if (dot) dot.className = 'status-dot online';
     if (label) label.innerText = 'ZeroGPU JAX Engine Ready';
@@ -439,12 +446,84 @@ window.handleFormSubmit = async function(e) {
     return false;
 };
 
-// Execution via Python JAX WebSocket
-function executePythonSolver(fileContent, config) {
+// Execution via HTTP Streaming (NDJSON) with Real-Time Plotly Updates & WebSocket Fallback
+async function executePythonSolver(fileContent, config) {
     const stageEl = document.getElementById('status-stage');
     const detailsEl = document.getElementById('status-details');
-    if (stageEl) stageEl.innerText = 'Connecting to ZeroGPU JAX Engine...';
-    if (detailsEl) detailsEl.innerText = `Connecting via WebSocket on ${currentEndpoints.wsSolve}...`;
+    if (stageEl) stageEl.innerText = '⚡ ZeroGPU JAX Engine Running...';
+    if (detailsEl) detailsEl.innerText = 'Initializing JAX multi-stage L-BFGS-B optimization...';
+
+    const solveCandidates = [
+        window.location.origin + "/api/solve",
+        window.location.origin + "/solve",
+        DEFAULT_HF_SPACE_URL + "/api/solve",
+        DEFAULT_LOCAL_URL + "/api/solve",
+        currentEndpoints.httpSolve
+    ];
+
+    let streamSucceeded = false;
+
+    for (const endpoint of solveCandidates) {
+        try {
+            const response = await fetch(endpoint, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    action: "solve",
+                    config: config,
+                    file_content: fileContent
+                })
+            });
+
+            if (!response.ok) continue;
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            streamSucceeded = true;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop(); // keep last incomplete chunk
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                        const data = JSON.parse(line);
+                        handleSolverMessage(data);
+                    } catch (err) {
+                        console.error("JSON parse error in chunk:", err);
+                    }
+                }
+            }
+
+            if (buffer.trim()) {
+                try {
+                    const data = JSON.parse(buffer);
+                    handleSolverMessage(data);
+                } catch (err) {}
+            }
+
+            break; // Succeeded!
+        } catch (err) {
+            console.warn(`Streaming attempt to ${endpoint} failed, trying next fallback:`, err);
+        }
+    }
+
+    if (!streamSucceeded) {
+        executeWebSocketFallback(fileContent, config);
+    }
+}
+
+function executeWebSocketFallback(fileContent, config) {
+    const stageEl = document.getElementById('status-stage');
+    const detailsEl = document.getElementById('status-details');
+    if (stageEl) stageEl.innerText = 'Connecting via WebSocket...';
+    if (detailsEl) detailsEl.innerText = `Opening WebSocket on ${currentEndpoints.wsSolve}...`;
 
     if (activeSocket) {
         activeSocket.close();
@@ -453,15 +532,13 @@ function executePythonSolver(fileContent, config) {
     try {
         activeSocket = new WebSocket(currentEndpoints.wsSolve);
     } catch (err) {
-        console.error("WebSocket initialization failed:", err);
         handleBackendOffline();
         return;
     }
 
     activeSocket.onopen = () => {
-        const isLocal = currentEndpoints.rawUrl.includes("127.0.0.1") || currentEndpoints.rawUrl.includes("localhost");
-        if (stageEl) stageEl.innerText = isLocal ? '⚡ Local JAX Engine Running' : '☁️ ZeroGPU A100 Engine Running';
-        if (detailsEl) detailsEl.innerText = 'JAX Auto-Diff multi-stage L-BFGS-B optimization in progress...';
+        if (stageEl) stageEl.innerText = '⚡ JAX Optimization Running';
+        if (detailsEl) detailsEl.innerText = 'Hardware-accelerated JAX XLA optimization in progress...';
         
         activeSocket.send(JSON.stringify({
             action: 'solve',
@@ -475,12 +552,12 @@ function executePythonSolver(fileContent, config) {
             const data = JSON.parse(event.data);
             handleSolverMessage(data);
         } catch (e) {
-            console.error("Error parsing message from server:", e);
+            console.error("Error parsing message:", e);
         }
     };
 
-    activeSocket.onerror = (err) => {
-        console.warn("WebSocket connection encountered error. Falling back if necessary:", err);
+    activeSocket.onerror = () => {
+        handleBackendOffline();
     };
 
     activeSocket.onclose = () => {
@@ -519,8 +596,8 @@ function handleSolverMessage(data) {
 function handleBackendOffline() {
     const stageEl = document.getElementById('status-stage');
     const detailsEl = document.getElementById('status-details');
-    if (stageEl) stageEl.innerText = 'Engine Connecting...';
-    if (detailsEl) detailsEl.innerText = 'Please wait a moment while the ZeroGPU container initializes.';
+    if (stageEl) stageEl.innerText = 'Engine Reconnecting...';
+    if (detailsEl) detailsEl.innerText = 'ZeroGPU container is initializing. Please click Execute again in 10s.';
     stopOptimizationUI();
 }
 
@@ -753,7 +830,7 @@ window.__initCVApp = function() {
     }
 };
 
-// Run initialization immediately and periodically until DOM elements exist
+// Run initialization immediately and on DOM load
 if (typeof document !== 'undefined') {
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', window.__initCVApp);

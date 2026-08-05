@@ -2,13 +2,15 @@ import os
 import sys
 from pathlib import Path
 import io
+import json
 import asyncio
 import traceback
 import pandas as pd
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse
 
 # Add project root and backend directory to sys.path
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -67,12 +69,64 @@ def health_check():
         "features": ["ZeroGPU Dynamic Allocation", "Automatic Differentiation", "JIT Parallelized Scan", "L-BFGS-B Multi-stage"]
     }
 
+@app.post("/api/solve")
+@app.post("/solve")
+async def api_solve_stream(request: Request):
+    data = await request.json()
+    raw_config = data.get("config", {})
+    file_content = data.get("file_content", "")
+    
+    if not file_content:
+        return {"type": "error", "message": "No CSV file content received. Please select and upload a CV file."}
+        
+    config = {
+        "scan_rate_v_s": float(raw_config.get("scan_rate", 0.010)),
+        "film_thickness": float(raw_config.get("film_thickness", 1e-4)),
+        "v_min": float(raw_config.get("v_min", -1.0)),
+        "v_max": float(raw_config.get("v_max", 1.0)),
+        "skip_factor": int(raw_config.get("skip_factor", 5)),
+        "num_peaks": int(raw_config.get("num_peaks", 50)),
+        "max_iter": int(raw_config.get("max_iter", 100)),
+        "tol_ftol": float(raw_config.get("tol_ftol", 1e-8)),
+        "tol_gtol": float(raw_config.get("tol_gtol", 1e-7)),
+        "num_terms": int(raw_config.get("num_terms", 50)),
+        "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0))
+    }
+    pot_col = int(raw_config.get("pot_col", 8))
+    cur_col = int(raw_config.get("cur_col", 9))
+    
+    df = pd.read_csv(io.StringIO(file_content), sep=None, engine='python')
+    
+    queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    
+    def run_solver():
+        try:
+            compute_solve_cv(df, config, pot_col, cur_col, queue, loop)
+        except Exception as e:
+            loop.call_soon_threadsafe(
+                queue.put_nowait, {
+                    "type": "error",
+                    "message": str(e),
+                    "trace": traceback.format_exc()
+                }
+            )
+            
+    asyncio.create_task(asyncio.to_thread(run_solver))
+    
+    async def event_generator():
+        while True:
+            msg = await queue.get()
+            yield json.dumps(msg) + "\n"
+            if msg.get("type") in ("done", "error"):
+                break
+                
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
 async def handle_solver_websocket(websocket: WebSocket):
     await websocket.accept()
     try:
         data = await websocket.receive_json()
-        
-        # Parse configuration
         raw_config = data.get("config", {})
         file_content = data.get("file_content", "")
         
@@ -93,17 +147,13 @@ async def handle_solver_websocket(websocket: WebSocket):
             "num_terms": int(raw_config.get("num_terms", 50)),
             "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0))
         }
-        
         pot_col = int(raw_config.get("pot_col", 8))
         cur_col = int(raw_config.get("cur_col", 9))
         
-        # Read file into pandas DataFrame
         df = pd.read_csv(io.StringIO(file_content), sep=None, engine='python')
-        
         queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
         
-        # Run JAX solver (with ZeroGPU acceleration if available) in background thread
         def run_solver():
             try:
                 compute_solve_cv(df, config, pot_col, cur_col, queue, loop)
@@ -118,7 +168,6 @@ async def handle_solver_websocket(websocket: WebSocket):
                 
         asyncio.create_task(asyncio.to_thread(run_solver))
         
-        # Stream live progress updates to WebSocket client
         while True:
             msg = await queue.get()
             await websocket.send_json(msg)

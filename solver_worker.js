@@ -437,31 +437,58 @@ function solveCVSimulation(fileContent, rawConfig) {
     }));
 }
 
-// Bounded Fast L-BFGS with Smart Subsystem Evaluation
+// Projected Bound-Constrained L-BFGS Optimizer matching SciPy L-BFGS-B
 function optimizeFastLBFGS(x, activeIndices, weights, computeLoss, lowerBounds, upperBounds, maxIter, onIter) {
     const N = x.length;
-    const numActive = activeIndices.length;
     const currentSim = new Float64Array(weights.length);
-
     let currentLoss = computeLoss(x, weights, currentSim);
-    let iter = 0;
 
-    const m = 5;
+    const isActive = new Uint8Array(N);
+    for (let j = 0; j < activeIndices.length; j++) isActive[activeIndices[j]] = 1;
+
+    const m = 8;
     const s_history = [];
     const y_history = [];
     const rho_history = [];
 
     const grad = new Float64Array(N);
-    const grad_old = new Float64Array(N);
-    const x_old = new Float64Array(N);
-    const dir = new Float64Array(N);
-
-    // Initial gradient computation
     computeFastGradient(x, activeIndices, weights, computeLoss, currentLoss, lowerBounds, upperBounds, grad);
 
-    for (iter = 1; iter <= maxIter; iter++) {
+    for (let iter = 1; iter <= maxIter; iter++) {
+        // 1. Identify Free Variables and Projected Gradient
+        const projGrad = new Float64Array(N);
+        const freeVars = [];
+        let maxProjGrad = 0;
+
+        for (let j = 0; j < activeIndices.length; j++) {
+            const idx = activeIndices[j];
+            const g = grad[idx];
+            const xi = x[idx];
+            const lb = lowerBounds[idx];
+            const ub = upperBounds[idx];
+
+            if (xi <= lb + 1e-10 && g > 0) {
+                projGrad[idx] = 0;
+            } else if (xi >= ub - 1e-10 && g < 0) {
+                projGrad[idx] = 0;
+            } else {
+                projGrad[idx] = g;
+                freeVars.push(idx);
+                const absG = Math.abs(g);
+                if (absG > maxProjGrad) maxProjGrad = absG;
+            }
+        }
+
+        if (maxProjGrad < 1e-6) {
+            break;
+        }
+
+        // 2. L-BFGS Two-Loop Recursion on Free Variables
         const q = new Float64Array(N);
-        for (let i = 0; i < N; i++) q[i] = grad[i];
+        for (let j = 0; j < freeVars.length; j++) {
+            const idx = freeVars[j];
+            q[idx] = projGrad[idx];
+        }
 
         const k = s_history.length;
         const alpha = new Float64Array(k);
@@ -472,13 +499,13 @@ function optimizeFastLBFGS(x, activeIndices, weights, computeLoss, lowerBounds, 
             const rho_i = rho_history[i];
 
             let dot = 0;
-            for (let j = 0; j < numActive; j++) {
-                const idx = activeIndices[j];
+            for (let j = 0; j < freeVars.length; j++) {
+                const idx = freeVars[j];
                 dot += s_i[idx] * q[idx];
             }
             alpha[i] = rho_i * dot;
-            for (let j = 0; j < numActive; j++) {
-                const idx = activeIndices[j];
+            for (let j = 0; j < freeVars.length; j++) {
+                const idx = freeVars[j];
                 q[idx] -= alpha[i] * y_i[idx];
             }
         }
@@ -488,17 +515,17 @@ function optimizeFastLBFGS(x, activeIndices, weights, computeLoss, lowerBounds, 
             const s_last = s_history[k - 1];
             const y_last = y_history[k - 1];
             let s_dot_y = 0, y_dot_y = 0;
-            for (let j = 0; j < numActive; j++) {
-                const idx = activeIndices[j];
+            for (let j = 0; j < freeVars.length; j++) {
+                const idx = freeVars[j];
                 s_dot_y += s_last[idx] * y_last[idx];
                 y_dot_y += y_last[idx] * y_last[idx];
             }
-            if (y_dot_y > 1e-12) gamma = s_dot_y / y_dot_y;
+            if (y_dot_y > 1e-12 && s_dot_y > 0) gamma = s_dot_y / y_dot_y;
         }
 
         const r = new Float64Array(N);
-        for (let j = 0; j < numActive; j++) {
-            const idx = activeIndices[j];
+        for (let j = 0; j < freeVars.length; j++) {
+            const idx = freeVars[j];
             r[idx] = gamma * q[idx];
         }
 
@@ -508,34 +535,47 @@ function optimizeFastLBFGS(x, activeIndices, weights, computeLoss, lowerBounds, 
             const rho_i = rho_history[i];
 
             let y_dot_r = 0;
-            for (let j = 0; j < numActive; j++) {
-                const idx = activeIndices[j];
+            for (let j = 0; j < freeVars.length; j++) {
+                const idx = freeVars[j];
                 y_dot_r += y_i[idx] * r[idx];
             }
             const beta = rho_i * y_dot_r;
-            for (let j = 0; j < numActive; j++) {
-                const idx = activeIndices[j];
+            for (let j = 0; j < freeVars.length; j++) {
+                const idx = freeVars[j];
                 r[idx] += s_i[idx] * (alpha[i] - beta);
             }
         }
 
-        for (let j = 0; j < numActive; j++) {
-            const idx = activeIndices[j];
+        const dir = new Float64Array(N);
+        let g_dot_d = 0;
+        for (let j = 0; j < freeVars.length; j++) {
+            const idx = freeVars[j];
             dir[idx] = -r[idx];
+            g_dot_d += projGrad[idx] * dir[idx];
         }
 
-        for (let i = 0; i < N; i++) {
-            x_old[i] = x[i];
-            grad_old[i] = grad[i];
+        // Safeguard descent direction
+        if (g_dot_d >= 0) {
+            g_dot_d = 0;
+            for (let j = 0; j < freeVars.length; j++) {
+                const idx = freeVars[j];
+                dir[idx] = -projGrad[idx];
+                g_dot_d += projGrad[idx] * dir[idx];
+            }
         }
 
+        // 3. Projected Armijo Line Search
+        const x_old = new Float64Array(x);
+        const grad_old = new Float64Array(grad);
+        const x_trial = new Float64Array(N);
         let stepSize = 1.0;
         let stepAccepted = false;
-        const x_trial = new Float64Array(N);
+        let nextLoss = currentLoss;
+        const c1 = 1e-4;
 
-        for (let ls = 0; ls < 8; ls++) {
+        for (let ls = 0; ls < 15; ls++) {
             for (let i = 0; i < N; i++) {
-                if (activeIndices.includes(i)) {
+                if (isActive[i]) {
                     let nextVal = x_old[i] + stepSize * dir[i];
                     if (nextVal < lowerBounds[i]) nextVal = lowerBounds[i];
                     if (nextVal > upperBounds[i]) nextVal = upperBounds[i];
@@ -546,8 +586,14 @@ function optimizeFastLBFGS(x, activeIndices, weights, computeLoss, lowerBounds, 
             }
 
             const trialLoss = computeLoss(x_trial, weights, currentSim);
-            if (trialLoss < currentLoss || stepSize < 1e-4) {
-                currentLoss = trialLoss;
+            let dir_dot = 0;
+            for (let j = 0; j < freeVars.length; j++) {
+                const idx = freeVars[j];
+                dir_dot += projGrad[idx] * (x_trial[idx] - x_old[idx]);
+            }
+
+            if (trialLoss <= currentLoss + c1 * dir_dot || stepSize < 1e-6) {
+                nextLoss = trialLoss;
                 for (let i = 0; i < N; i++) x[i] = x_trial[i];
                 stepAccepted = true;
                 break;
@@ -556,21 +602,28 @@ function optimizeFastLBFGS(x, activeIndices, weights, computeLoss, lowerBounds, 
         }
 
         if (!stepAccepted) break;
+        currentLoss = nextLoss;
 
         computeFastGradient(x, activeIndices, weights, computeLoss, currentLoss, lowerBounds, upperBounds, grad);
 
+        // 4. Update L-BFGS Curvature Vectors
         const s_vec = new Float64Array(N);
         const y_vec = new Float64Array(N);
-        let s_dot_y = 0;
+        let s_dot_y = 0, s_norm = 0, y_norm = 0;
 
-        for (let j = 0; j < numActive; j++) {
+        for (let j = 0; j < activeIndices.length; j++) {
             const idx = activeIndices[j];
             s_vec[idx] = x[idx] - x_old[idx];
             y_vec[idx] = grad[idx] - grad_old[idx];
             s_dot_y += s_vec[idx] * y_vec[idx];
+            s_norm += s_vec[idx] * s_vec[idx];
+            y_norm += y_vec[idx] * y_vec[idx];
         }
 
-        if (s_dot_y > 1e-10) {
+        s_norm = Math.sqrt(s_norm);
+        y_norm = Math.sqrt(y_norm);
+
+        if (s_dot_y > 1e-10 * s_norm * y_norm) {
             if (s_history.length >= m) {
                 s_history.shift();
                 y_history.shift();
@@ -581,13 +634,13 @@ function optimizeFastLBFGS(x, activeIndices, weights, computeLoss, lowerBounds, 
             rho_history.push(1.0 / s_dot_y);
         }
 
-        if (iter % 4 === 0 || iter === 1) {
+        if (iter % 4 === 0 || iter === 1 || iter === maxIter) {
             onIter(iter, currentLoss, currentSim);
         }
     }
 }
 
-// Optimized Gradient with Background Parameter Fast-Path
+// Adaptive Central/Forward Difference Gradient with Bounds Respect
 function computeFastGradient(x, activeIndices, weights, computeLoss, currentLoss, lowerBounds, upperBounds, gradOut) {
     const N = x.length;
     for (let i = 0; i < N; i++) gradOut[i] = 0;
@@ -595,20 +648,31 @@ function computeFastGradient(x, activeIndices, weights, computeLoss, currentLoss
     for (let j = 0; j < activeIndices.length; j++) {
         const idx = activeIndices[j];
         const orig = x[idx];
-        let eps = Math.abs(orig) * 1e-4;
-        if (eps < 1e-6) eps = 1e-6;
+        const h = Math.max(Math.abs(orig) * 1e-5, 1e-6);
+        const lb = lowerBounds[idx];
+        const ub = upperBounds[idx];
 
-        let x_plus = orig + eps;
-        if (x_plus > upperBounds[idx]) x_plus = upperBounds[idx];
-        const actual_h = x_plus - orig;
+        const hp = Math.min(h, ub - orig);
+        const hm = Math.min(h, orig - lb);
+        const isPureBackground = (idx >= 4 && idx <= 8);
 
-        if (actual_h > 1e-12) {
-            x[idx] = x_plus;
-            // If perturbing background/offset parameters (4,5,6,7,8), skip Fourier simulation entirely!
-            const isPureBackground = (idx >= 4 && idx <= 8);
-            const loss_plus = computeLoss(x, weights, null, isPureBackground);
-            gradOut[idx] = (loss_plus - currentLoss) / actual_h;
+        if (hp > 1e-10 && hm > 1e-10) {
+            x[idx] = orig + hp;
+            const lp = computeLoss(x, weights, null, isPureBackground);
+            x[idx] = orig - hm;
+            const lm = computeLoss(x, weights, null, isPureBackground);
             x[idx] = orig;
+            gradOut[idx] = (lp - lm) / (hp + hm);
+        } else if (hp > 1e-10) {
+            x[idx] = orig + hp;
+            const lp = computeLoss(x, weights, null, isPureBackground);
+            x[idx] = orig;
+            gradOut[idx] = (lp - currentLoss) / hp;
+        } else if (hm > 1e-10) {
+            x[idx] = orig - hm;
+            const lm = computeLoss(x, weights, null, isPureBackground);
+            x[idx] = orig;
+            gradOut[idx] = (currentLoss - lm) / hm;
         } else {
             gradOut[idx] = 0;
         }

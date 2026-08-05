@@ -53,29 +53,53 @@
                             <!-- Data Mapping & Column Selector -->
                             <fieldset class="form-section">
                                 <legend>Column Selection & Cycle Presets</legend>
-                                <div class="cycle-preset-buttons" id="cycle-preset-buttons">
-                                    <button type="button" class="preset-pill-btn" data-pot="0" data-cur="1">Cycle 1 (Col 0, 1)</button>
-                                    <button type="button" class="preset-pill-btn" data-pot="4" data-cur="5">Cycle 2 (Col 4, 5)</button>
-                                    <button type="button" class="preset-pill-btn active" data-pot="8" data-cur="9">Cycle 3 (Col 8, 9)</button>
-                                    <button type="button" class="preset-pill-btn" data-pot="12" data-cur="13">Cycle 4 (Col 12, 13)</button>
+                                <div class="cycle-preset-container" id="cycle-preset-container">
+                                    <div class="preset-row">
+                                        <span class="preset-cycle-tag">Cycle 1:</span>
+                                        <button type="button" class="preset-pill-btn" data-pot="0" data-cur="1" data-skip="10">Raw (0, 1)</button>
+                                        <button type="button" class="preset-pill-btn" data-pot="2" data-cur="3" data-skip="1">Adjusted (2, 3)</button>
+                                    </div>
+                                    <div class="preset-row">
+                                        <span class="preset-cycle-tag">Cycle 2:</span>
+                                        <button type="button" class="preset-pill-btn" data-pot="4" data-cur="5" data-skip="10">Raw (4, 5)</button>
+                                        <button type="button" class="preset-pill-btn" data-pot="6" data-cur="7" data-skip="1">Adjusted (6, 7)</button>
+                                    </div>
+                                    <div class="preset-row">
+                                        <span class="preset-cycle-tag">Cycle 3:</span>
+                                        <button type="button" class="preset-pill-btn active" data-pot="8" data-cur="9" data-skip="10">Raw (8, 9)</button>
+                                        <button type="button" class="preset-pill-btn" data-pot="10" data-cur="11" data-skip="1">Adjusted (10, 11)</button>
+                                    </div>
+                                    <div class="preset-row">
+                                        <span class="preset-cycle-tag">Cycle 4:</span>
+                                        <button type="button" class="preset-pill-btn" data-pot="12" data-cur="13" data-skip="10">Raw (12, 13)</button>
+                                        <button type="button" class="preset-pill-btn" data-pot="14" data-cur="15" data-skip="1">Adjusted (14, 15)</button>
+                                    </div>
                                 </div>
                                 <div class="input-grid">
                                     <div class="form-group">
                                         <label for="pot_col">Potential (V) Column</label>
                                         <select id="pot_col" name="pot_col" class="engine-dropdown" required>
-                                            <option value="8">Col 8: Cycle 3 Potential (V)</option>
-                                            <option value="0">Col 0: Cycle 1 Potential (V)</option>
-                                            <option value="4">Col 4: Cycle 2 Potential (V)</option>
-                                            <option value="12">Col 12: Cycle 4 Potential (V)</option>
+                                            <option value="8">Col 8: Cycle 3 Potential (V) [Raw]</option>
+                                            <option value="10">Col 10: Cycle 3 Potential (V) [Adjusted]</option>
+                                            <option value="0">Col 0: Cycle 1 Potential (V) [Raw]</option>
+                                            <option value="2">Col 2: Cycle 1 Potential (V) [Adjusted]</option>
+                                            <option value="4">Col 4: Cycle 2 Potential (V) [Raw]</option>
+                                            <option value="6">Col 6: Cycle 2 Potential (V) [Adjusted]</option>
+                                            <option value="12">Col 12: Cycle 4 Potential (V) [Raw]</option>
+                                            <option value="14">Col 14: Cycle 4 Potential (V) [Adjusted]</option>
                                         </select>
                                     </div>
                                     <div class="form-group">
                                         <label for="cur_col">Current (A) Column</label>
                                         <select id="cur_col" name="cur_col" class="engine-dropdown" required>
-                                            <option value="9">Col 9: Cycle 3 Current (A)</option>
-                                            <option value="1">Col 1: Cycle 1 Current (A)</option>
-                                            <option value="5">Col 5: Cycle 2 Current (A)</option>
-                                            <option value="13">Col 13: Cycle 4 Current (A)</option>
+                                            <option value="9">Col 9: Cycle 3 Current (A) [Raw]</option>
+                                            <option value="11">Col 11: Cycle 3 Current (A) [Adjusted]</option>
+                                            <option value="1">Col 1: Cycle 1 Current (A) [Raw]</option>
+                                            <option value="3">Col 3: Cycle 1 Current (A) [Adjusted]</option>
+                                            <option value="5">Col 5: Cycle 2 Current (A) [Raw]</option>
+                                            <option value="7">Col 7: Cycle 2 Current (A) [Adjusted]</option>
+                                            <option value="13">Col 13: Cycle 4 Current (A) [Raw]</option>
+                                            <option value="15">Col 15: Cycle 4 Current (A) [Adjusted]</option>
                                         </select>
                                     </div>
                                 </div>

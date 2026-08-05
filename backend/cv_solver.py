@@ -32,7 +32,7 @@ def load_and_preprocess_cv_data(df, pot_col, cur_col, scan_rate_v_s, skip_factor
     return exp_time, exp_potential, exp_current
 
 def extract_physics_priors(potential, turn_idx, num_peaks, v_min, v_max):
-    global_params = [2.0, 1.0, 1.0, np.mean(pote    ntial), 0.0, 0.1, 1.0, 0.1, 1.0]
+    global_params = [2.0, 1.0, 1.0, np.mean(potential), 0.0, 0.1, 1.0, 0.1, 1.0]
     peaks_matrix = np.zeros((num_peaks, 3))
     v_crits = np.linspace(v_min + 0.1, v_max - 0.1, num_peaks)
     for i in range(num_peaks):

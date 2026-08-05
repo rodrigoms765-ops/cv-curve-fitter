@@ -194,6 +194,21 @@ function analyzeCSVAndPopulateColumns(content) {
     const colCount = hasHeader ? firstLineFields.length : (secondLineFields.length || firstLineFields.length);
     detectedColumns = [];
 
+    // Count non-empty numeric data points per column
+    const colCounts = new Array(colCount).fill(0);
+    const startRow = hasHeader ? 1 : 0;
+    for (let i = startRow; i < lines.length; i++) {
+        const tokens = lines[i].split(delimiter);
+        for (let c = 0; c < colCount; c++) {
+            if (c < tokens.length) {
+                const s = tokens[c].trim();
+                if (s !== "" && !isNaN(parseFloat(s))) {
+                    colCounts[c]++;
+                }
+            }
+        }
+    }
+
     // Track cycle numbers for standard 4-column-per-cycle pattern
     for (let c = 0; c < colCount; c++) {
         let rawHeader = hasHeader && firstLineFields[c] ? firstLineFields[c] : `Column ${c}`;
@@ -205,14 +220,17 @@ function analyzeCSVAndPopulateColumns(content) {
         let typeStr = isPotential ? "Potential (V)" : (isCurrent ? "Current (A)" : rawHeader);
         let adjStr = isAdjusted ? " [Adjusted]" : " [Raw]";
         let cycleStr = colCount >= 8 ? `Cycle ${cycleNum}` : "";
+        let ptsStr = ` (${colCounts[c].toLocaleString()} pts)`;
 
-        let displayName = `${cycleStr ? cycleStr + ' ' : ''}${typeStr}${adjStr}`;
-        if (!hasHeader) displayName = `Column ${c}`;
+        let displayName = `${cycleStr ? cycleStr + ' ' : ''}${typeStr}${adjStr}${ptsStr}`;
+        if (!hasHeader) displayName = `Column ${c}${ptsStr}`;
 
         detectedColumns.push({
             index: c,
             name: displayName,
-            rawName: rawHeader
+            rawName: rawHeader,
+            count: colCounts[c],
+            isAdjusted: isAdjusted
         });
     }
 
@@ -281,15 +299,20 @@ function updateCycleButtonsActiveState(pot, cur) {
 }
 
 // Preset Buttons Event Delegation
-const presetContainer = document.getElementById('cycle-preset-buttons');
+const presetContainer = document.getElementById('cycle-preset-container') || document.getElementById('cycle-preset-buttons');
 if (presetContainer) {
     presetContainer.addEventListener('click', (e) => {
         if (e.target && e.target.classList.contains('preset-pill-btn')) {
             const pot = parseInt(e.target.getAttribute('data-pot'), 10);
             const cur = parseInt(e.target.getAttribute('data-cur'), 10);
+            const skip = e.target.getAttribute('data-skip');
 
             const potSelect = document.getElementById('pot_col');
             const curSelect = document.getElementById('cur_col');
+            const skipInput = document.getElementById('skip_factor');
+            if (skip && skipInput) {
+                skipInput.value = skip;
+            }
             if (potSelect && curSelect) {
                 potSelect.value = pot;
                 curSelect.value = cur;

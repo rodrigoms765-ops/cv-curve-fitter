@@ -4,6 +4,15 @@ from pathlib import Path
 import gradio as gr
 from fastapi.middleware.cors import CORSMiddleware
 
+# Hugging Face ZeroGPU registration stub (if running on ZeroGPU hardware)
+try:
+    import spaces
+    @spaces.GPU
+    def gpu_support_fn():
+        return True
+except (ImportError, Exception):
+    pass
+
 # Add project root and backend folder to Python path
 ROOT_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = ROOT_DIR / "backend"

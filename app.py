@@ -1,8 +1,9 @@
 import os
 import sys
 from pathlib import Path
-import gradio as gr
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import gradio as gr
 
 # Hugging Face ZeroGPU registration stub (if running on ZeroGPU hardware)
 try:
@@ -23,7 +24,25 @@ if str(BACKEND_DIR) not in sys.path:
 
 from backend.main import handle_solver_websocket, health_check
 
-# Create native Gradio interface
+# 1. Initialize Root FastAPI Application
+app = FastAPI(title="CV Curve Fitting Pro - JAX Engine")
+
+# 2. Add Cross-Origin Resource Sharing (CORS) for external web clients (e.g. GitHub Pages)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 3. Register Custom REST & WebSocket Endpoints Directly
+app.add_api_route("/health", health_check, methods=["GET"])
+app.add_api_route("/api/health", health_check, methods=["GET"])
+app.add_api_websocket_route("/ws/solve", handle_solver_websocket)
+app.add_api_websocket_route("/ws", handle_solver_websocket)
+
+# 4. Create Native Gradio Blocks Interface
 with gr.Blocks(title="CV Curve Fitting Pro - JAX Engine") as demo:
     gr.Markdown("# ⚡ CV Curve Fitting Pro - JAX Engine")
     gr.Markdown("""
@@ -47,20 +66,5 @@ with gr.Blocks(title="CV Curve Fitting Pro - JAX Engine") as demo:
     </div>
     """)
 
-# Add Cross-Origin Resource Sharing (CORS) for external web clients (e.g. GitHub Pages)
-demo.app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Attach FastAPI API routes and WebSocket endpoints directly to demo.app
-demo.app.add_api_route("/health", health_check, methods=["GET"])
-demo.app.add_api_route("/api/health", health_check, methods=["GET"])
-demo.app.add_api_websocket_route("/ws/solve", handle_solver_websocket)
-demo.app.add_api_websocket_route("/ws", handle_solver_websocket)
-
-if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860, ssr_mode=False)
+# 5. Mount Gradio onto the Root FastAPI App
+app = gr.mount_gradio_app(app, demo, path="/")

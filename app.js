@@ -127,7 +127,7 @@ function analyzeCSVAndPopulateColumns(content) {
 
         if (metaBar && metaText) {
             metaBar.classList.add('visible');
-            metaText.innerHTML = `Loaded <strong>${colCount} column${colCount > 1 ? 's' : ''}</strong> &bull; <strong>${lines.length - startRow} rows</strong>`;
+            metaText.innerHTML = `Loaded <strong>${colCount} column${colCount > 1 ? 's' : ''}</strong> &bull; <strong>${(lines.length - startRow).toLocaleString()} rows</strong>`;
         }
 
         window.updateLivePreviewFromColumns();
@@ -435,23 +435,23 @@ function stopOptimizationUI() {
     }
 }
 
-// Scientific Academic Plotly Layout Configuration
+// Scientific Academic Plotly Layout Configuration (High Contrast)
 const layoutConfig = {
     paper_bgcolor: 'transparent',
     plot_bgcolor: 'transparent',
-    font: { family: 'Inter, -apple-system, sans-serif', color: '#94a3b8', size: 12 },
-    margin: { l: 75, r: 35, t: 40, b: 55 },
+    font: { family: 'Inter, -apple-system, sans-serif', color: '#f8fafc', size: 12 },
+    margin: { l: 80, r: 40, t: 45, b: 60 },
     xaxis: {
-        gridcolor: 'rgba(255, 255, 255, 0.07)',
-        zerolinecolor: 'rgba(255, 255, 255, 0.15)',
-        tickfont: { color: '#94a3b8', size: 11 },
-        titlefont: { color: '#f1f5f9', size: 13 }
+        gridcolor: 'rgba(255, 255, 255, 0.12)',
+        zerolinecolor: 'rgba(255, 255, 255, 0.25)',
+        tickfont: { color: '#cbd5e1', size: 12 },
+        titlefont: { color: '#ffffff', size: 14 }
     },
     yaxis: {
-        gridcolor: 'rgba(255, 255, 255, 0.07)',
-        zerolinecolor: 'rgba(255, 255, 255, 0.15)',
-        tickfont: { color: '#94a3b8', size: 11 },
-        titlefont: { color: '#f1f5f9', size: 13 },
+        gridcolor: 'rgba(255, 255, 255, 0.12)',
+        zerolinecolor: 'rgba(255, 255, 255, 0.25)',
+        tickfont: { color: '#cbd5e1', size: 12 },
+        titlefont: { color: '#ffffff', size: 14 },
         tickformat: '.2e'
     }
 };
@@ -464,15 +464,15 @@ function renderInitialExpPlot(pot, cur) {
         mode: 'lines',
         type: 'scatter',
         name: 'Experimental Voltammogram',
-        line: { color: '#38bdf8', width: 2.2 }
+        line: { color: '#38bdf8', width: 2.4 }
     };
 
     const layout = Object.assign({}, layoutConfig, {
-        title: { text: `Cyclic Voltammogram (${stagedFileName})`, font: { color: '#ffffff', size: 14 } },
+        title: { text: `Cyclic Voltammogram (${stagedFileName})`, font: { color: '#ffffff', size: 15, family: 'Inter, sans-serif' } },
         xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Applied Potential <i>V</i> (V vs. Ref)' }),
         yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current <i>I</i> (A)' }),
         showlegend: true,
-        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(15, 23, 42, 0.8)', font: { color: '#f1f5f9' } }
+        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(15, 23, 42, 0.9)', font: { color: '#ffffff', size: 12 }, bordercolor: '#334155', borderwidth: 1 }
     });
 
     Plotly.react('live-chart', [traceExp], layout, { responsive: true, displaylogo: false });
@@ -495,15 +495,15 @@ function updateLivePlotProgress(currentFit) {
         mode: 'lines',
         type: 'scatter',
         name: 'Fitted Physical Model',
-        line: { color: '#f43f5e', width: 2.6 }
+        line: { color: '#f43f5e', width: 2.8 }
     };
 
     const layout = Object.assign({}, layoutConfig, {
-        title: { text: 'Experimental vs. Fitted Cyclic Voltammogram Overlay', font: { color: '#ffffff', size: 14 } },
+        title: { text: 'Experimental vs. Fitted Cyclic Voltammogram Overlay', font: { color: '#ffffff', size: 15, family: 'Inter, sans-serif' } },
         xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Applied Potential <i>V</i> (V vs. Ref)' }),
         yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current <i>I</i> (A)' }),
         showlegend: true,
-        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(15, 23, 42, 0.8)', font: { color: '#f1f5f9' } }
+        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(15, 23, 42, 0.9)', font: { color: '#ffffff', size: 12 }, bordercolor: '#334155', borderwidth: 1 }
     });
 
     Plotly.react('live-chart', [traceExp, traceSim], layout, { responsive: true, displaylogo: false });
@@ -556,7 +556,7 @@ function renderSecondaryPlots(plots) {
                 mode: 'lines',
                 type: 'scatter',
                 name: `Sub-band ${i+1}`,
-                line: { width: 1, dash: 'dot', color: 'rgba(56, 189, 248, 0.35)' },
+                line: { width: 1, dash: 'dot', color: 'rgba(56, 189, 248, 0.45)' },
                 showlegend: false
             });
         });
@@ -568,11 +568,11 @@ function renderSecondaryPlots(plots) {
         mode: 'lines',
         type: 'scatter',
         name: 'Total DOS(V)',
-        line: { color: '#10b981', width: 2.5 }
+        line: { color: '#10b981', width: 2.8 }
     });
 
     const dosLayout = Object.assign({}, layoutConfig, {
-        title: { text: 'Extracted Density of States DOS(V)', font: { color: '#ffffff', size: 14 } },
+        title: { text: 'Extracted Density of States DOS(V)', font: { color: '#ffffff', size: 15, family: 'Inter, sans-serif' } },
         xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. Ref)', autorange: true }),
         yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'DOS (a.u.)', autorange: true, tickformat: '.2e' }),
         showlegend: false
@@ -587,11 +587,11 @@ function renderSecondaryPlots(plots) {
         mode: 'lines',
         type: 'scatter',
         name: 'D(V)',
-        line: { color: '#38bdf8', width: 2.5 }
+        line: { color: '#38bdf8', width: 2.8 }
     };
 
     const diffLayout = Object.assign({}, layoutConfig, {
-        title: { text: 'Voltage-Dependent Diffusivity Profile D(V)', font: { color: '#ffffff', size: 14 } },
+        title: { text: 'Voltage-Dependent Diffusivity Profile D(V)', font: { color: '#ffffff', size: 15, family: 'Inter, sans-serif' } },
         xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. Ref)', autorange: true }),
         yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Diffusivity <i>D</i> (cm²/s)', type: 'log', autorange: true, tickformat: '.1e' }),
         showlegend: false
@@ -641,7 +641,6 @@ function downloadFile(content, fileName, contentType) {
 
 // Master Initialization Function
 window.__initCVApp = function() {
-    // Check initial layout resize trigger
     if (window.Plotly && expPotential.length > 0) {
         Plotly.Plots.resize('live-chart');
     }

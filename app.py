@@ -125,11 +125,21 @@ try:
 
     head_html = f"""
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+    :root, html, body {{
+        color-scheme: dark !important;
+        background-color: #0b1120 !important;
+    }}
     {app_css}
     footer {{visibility: hidden !important; display: none !important;}}
-    .gradio-container {{max-width: 100% !important; padding: 0 !important; margin: 0 !important; background: #0b1120 !important;}}
+    .gradio-container {{
+        max-width: 100% !important; 
+        padding: 0 !important; 
+        margin: 0 !important; 
+        background: #0b1120 !important;
+        color: #e2e8f0 !important;
+    }}
     .prose {{max-width: 100% !important;}}
     .hidden-bridge {{position: absolute !important; opacity: 0 !important; pointer-events: none !important; height: 0 !important; width: 0 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; border: none !important;}}
     </style>

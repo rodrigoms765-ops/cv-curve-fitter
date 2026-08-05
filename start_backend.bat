@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 title CV Curve Fitting Pro - High-Speed JAX Backend
 echo ======================================================================
 echo   CV Curve Fitting Pro - High-Speed JAX Optimization Backend
@@ -13,6 +14,9 @@ if %errorlevel% neq 0 (
 )
 echo.
 echo Starting FastAPI + JAX Backend on http://127.0.0.1:8000 ...
+echo Opening web interface in your browser...
+start http://127.0.0.1:8000
+echo.
 echo Press Ctrl+C to stop the server.
 echo.
 python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload

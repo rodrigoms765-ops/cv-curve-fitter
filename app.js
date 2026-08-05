@@ -1,5 +1,5 @@
 // CV Curve Fitting Pro - Pure Python JAX + SciPy Engine Client
-// Connected to Python FastAPI / WebSocket Backend (ws://127.0.0.1:8000)
+// Connected to Python FastAPI / WebSocket Backend (Hugging Face Spaces or Localhost)
 
 // Global State
 let activeSocket = null;
@@ -9,10 +9,53 @@ let latestResults = null;
 let stagedFileContent = null;
 let stagedFileName = "No file chosen";
 let detectedColumns = [];
-let isLocalBackendAvailable = false;
+let isBackendAvailable = false;
+let activeBackendType = "offline"; // "cloud", "local", "offline"
 
-const BACKEND_URL_HTTP = "http://127.0.0.1:8000/health";
-const BACKEND_URL_WS = "ws://127.0.0.1:8000/ws/solve";
+// Default endpoints
+const DEFAULT_LOCAL_URL = "http://127.0.0.1:8000";
+const DEFAULT_HF_SPACE_URL = "https://rodrigoms765-cv-solver-api.hf.space";
+
+function getStoredBackendUrl() {
+    return localStorage.getItem('cv_backend_url') || "";
+}
+
+function resolveEndpoints(rawUrl) {
+    let url = (rawUrl || "").trim().replace(/\/+$/, "");
+    if (!url) {
+        // If on localhost / 127.0.0.1, default to local, otherwise default to HF Space Cloud
+        if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+            url = DEFAULT_LOCAL_URL;
+        } else {
+            url = DEFAULT_HF_SPACE_URL;
+        }
+    }
+    
+    let httpHealth = "";
+    let wsSolve = "";
+
+    if (url.startsWith("https://")) {
+        httpHealth = url + "/health";
+        wsSolve = url.replace("https://", "wss://") + "/ws/solve";
+    } else if (url.startsWith("http://")) {
+        httpHealth = url + "/health";
+        wsSolve = url.replace("http://", "ws://") + "/ws/solve";
+    } else if (url.startsWith("wss://")) {
+        wsSolve = url.includes("/ws/solve") ? url : url + "/ws/solve";
+        httpHealth = url.replace("wss://", "https://").replace(/\/ws\/solve\/?$/, "") + "/health";
+    } else if (url.startsWith("ws://")) {
+        wsSolve = url.includes("/ws/solve") ? url : url + "/ws/solve";
+        httpHealth = url.replace("ws://", "http://").replace(/\/ws\/solve\/?$/, "") + "/health";
+    } else {
+        // Default protocol
+        httpHealth = "https://" + url + "/health";
+        wsSolve = "wss://" + url + "/ws/solve";
+    }
+
+    return { rawUrl: url, httpHealth, wsSolve };
+}
+
+let currentEndpoints = resolveEndpoints(getStoredBackendUrl());
 
 // Plotly Baseline Layout Configuration
 const layoutConfig = {
@@ -43,45 +86,97 @@ const layoutConfig = {
     margin: { t: 30, r: 30, l: 70, b: 60 }
 };
 
-// Probe Local Python Backend
-async function probeLocalBackend() {
+// Probe Python Backend (tries configured URL, then localhost fallback)
+async function probePythonBackend() {
     const dot = document.getElementById('engine-dot');
     const label = document.getElementById('engine-label');
     const msg = document.getElementById('engine-status-msg');
 
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1200);
-        const res = await fetch(BACKEND_URL_HTTP, { signal: controller.signal });
-        clearTimeout(timeoutId);
+    const urlsToTest = [
+        currentEndpoints,
+        resolveEndpoints(DEFAULT_LOCAL_URL)
+    ];
 
-        if (res.ok) {
-            isLocalBackendAvailable = true;
-            if (dot) dot.className = 'status-dot online';
-            if (label) label.innerText = '⚡ Python JAX Backend Online';
-            if (msg) {
-                msg.innerText = '⚡ Python JAX Backend Connected (Port 8000)';
-                msg.className = 'engine-status-msg online';
+    for (let ep of urlsToTest) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2000);
+            const res = await fetch(ep.httpHealth, { signal: controller.signal });
+            clearTimeout(timeoutId);
+
+            if (res.ok) {
+                isBackendAvailable = true;
+                currentEndpoints = ep;
+                const isLocal = ep.rawUrl.includes("127.0.0.1") || ep.rawUrl.includes("localhost");
+                activeBackendType = isLocal ? "local" : "cloud";
+
+                if (dot) dot.className = 'status-dot online';
+                if (label) label.innerText = isLocal ? '⚡ Local JAX Online' : '☁️ Hugging Face Cloud Online';
+                if (msg) {
+                    msg.innerText = isLocal ? '⚡ Connected to Local JAX Backend (Port 8000)' : '☁️ Connected to Hugging Face Cloud Engine';
+                    msg.className = 'engine-status-msg online';
+                }
+                return true;
             }
-            return true;
+        } catch (e) {
+            // Offline on this endpoint
         }
-    } catch (e) {
-        // Backend offline
     }
 
-    isLocalBackendAvailable = false;
+    isBackendAvailable = false;
+    activeBackendType = "offline";
     if (dot) dot.className = 'status-dot offline';
     if (label) label.innerText = '⚠️ Python Backend Offline';
     if (msg) {
-        msg.innerText = 'Python server offline. Run "python backend/main.py" or start_backend.bat';
+        msg.innerText = 'Python solver offline. Connect Hugging Face Space URL or run local server.';
         msg.className = 'engine-status-msg';
     }
     return false;
 }
 
-// Check backend on load and periodically
-probeLocalBackend();
-setInterval(probeLocalBackend, 5000);
+// Initial probe & periodic polling
+probePythonBackend();
+setInterval(probePythonBackend, 6000);
+
+// Endpoint Configuration Controls
+document.addEventListener('DOMContentLoaded', () => {
+    const urlInput = document.getElementById('backend-url-input');
+    const saveBtn = document.getElementById('backend-save-btn');
+    const hfPreset = document.getElementById('preset-hf-btn');
+    const localPreset = document.getElementById('preset-local-btn');
+
+    if (urlInput) {
+        urlInput.value = getStoredBackendUrl() || (window.location.hostname === "localhost" ? DEFAULT_LOCAL_URL : DEFAULT_HF_SPACE_URL);
+    }
+
+    if (saveBtn && urlInput) {
+        saveBtn.addEventListener('click', () => {
+            const val = urlInput.value.trim();
+            localStorage.setItem('cv_backend_url', val);
+            currentEndpoints = resolveEndpoints(val);
+            document.getElementById('engine-status-msg').innerText = 'Testing connection...';
+            probePythonBackend();
+        });
+    }
+
+    if (hfPreset && urlInput) {
+        hfPreset.addEventListener('click', () => {
+            urlInput.value = DEFAULT_HF_SPACE_URL;
+            localStorage.setItem('cv_backend_url', DEFAULT_HF_SPACE_URL);
+            currentEndpoints = resolveEndpoints(DEFAULT_HF_SPACE_URL);
+            probePythonBackend();
+        });
+    }
+
+    if (localPreset && urlInput) {
+        localPreset.addEventListener('click', () => {
+            urlInput.value = DEFAULT_LOCAL_URL;
+            localStorage.setItem('cv_backend_url', DEFAULT_LOCAL_URL);
+            currentEndpoints = resolveEndpoints(DEFAULT_LOCAL_URL);
+            probePythonBackend();
+        });
+    }
+});
 
 // Advanced Settings Accordion Toggle
 const advToggle = document.getElementById('advanced-toggle');
@@ -455,14 +550,14 @@ if (cvForm) {
 // Execution via Python JAX / SciPy Backend WebSocket
 function executePythonSolver(fileContent, config) {
     document.getElementById('status-stage').innerText = 'Connecting to Python Backend...';
-    document.getElementById('status-details').innerText = 'Initializing WebSocket connection on ws://127.0.0.1:8000/ws/solve...';
+    document.getElementById('status-details').innerText = `Opening WebSocket on ${currentEndpoints.wsSolve}...`;
 
     if (activeSocket) {
         activeSocket.close();
     }
 
     try {
-        activeSocket = new WebSocket(BACKEND_URL_WS);
+        activeSocket = new WebSocket(currentEndpoints.wsSolve);
     } catch (err) {
         console.error("WebSocket initialization failed:", err);
         handleBackendOffline();
@@ -470,7 +565,8 @@ function executePythonSolver(fileContent, config) {
     }
 
     activeSocket.onopen = () => {
-        document.getElementById('status-stage').innerText = '⚡ Python JAX Engine Running';
+        const isLocal = currentEndpoints.rawUrl.includes("127.0.0.1") || currentEndpoints.rawUrl.includes("localhost");
+        document.getElementById('status-stage').innerText = isLocal ? '⚡ Local JAX Engine Running' : '☁️ Hugging Face Cloud Engine Running';
         document.getElementById('status-details').innerText = 'Hardware-accelerated XLA optimization with L-BFGS-B in progress...';
         
         activeSocket.send(JSON.stringify({
@@ -500,8 +596,8 @@ function executePythonSolver(fileContent, config) {
 }
 
 function handleBackendOffline() {
-    document.getElementById('status-stage').innerText = '⚠️ Python Backend Not Running';
-    document.getElementById('status-details').innerText = 'Please launch the Python backend server: run "python backend/main.py" or double-click "start_backend.bat".';
+    document.getElementById('status-stage').innerText = '⚠️ Python Backend Offline';
+    document.getElementById('status-details').innerText = 'Could not reach the Python server at ' + currentEndpoints.rawUrl + '. Please check the Server Endpoint or launch your backend.';
     resetUI();
     const modal = document.getElementById('backend-modal');
     if (modal) modal.classList.remove('hidden');

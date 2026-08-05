@@ -176,6 +176,23 @@
                                             </div>
                                         </div>
                                     </fieldset>
+
+                                    <!-- Python Backend Server Configuration -->
+                                    <fieldset class="form-section">
+                                        <legend>Python Server Endpoint</legend>
+                                        <div class="form-group">
+                                            <label for="backend-url-input">Server API / WebSocket URL</label>
+                                            <div class="input-action-row">
+                                                <input type="text" id="backend-url-input" placeholder="https://your-space.hf.space or http://127.0.0.1:8000" style="flex: 1; padding: 8px 12px; border: 1px solid var(--color-border); border-radius: 6px; font-family: monospace; font-size: 0.85rem;">
+                                                <button type="button" id="backend-save-btn" class="btn-secondary" style="padding: 8px 16px;">Connect</button>
+                                            </div>
+                                            <div class="preset-links-row" style="margin-top: 6px; display: flex; gap: 8px; font-size: 0.8rem;">
+                                                <button type="button" class="btn-text-link" id="preset-hf-btn">⚡ Use HF Space Cloud</button>
+                                                <span>&bull;</span>
+                                                <button type="button" class="btn-text-link" id="preset-local-btn">💻 Use Localhost:8000</button>
+                                            </div>
+                                        </div>
+                                    </fieldset>
                                 </div>
                             </div>
 
@@ -188,7 +205,7 @@
                                     </div>
                                     <div class="engine-help-row" style="margin-top: 8px;">
                                         <span class="engine-status-msg" id="engine-status-msg">Probing Python solver server...</span>
-                                        <button type="button" class="btn-text-link" id="backend-help-link">Server Setup Guide</button>
+                                        <button type="button" class="btn-text-link" id="backend-help-link">Deployment & Setup Guide</button>
                                     </div>
                                 </div>
                             </fieldset>
@@ -314,34 +331,40 @@
         </div>
     </div>
 
-    <!-- Local Backend Connection Modal -->
+    <!-- Backend Setup & Cloud Deployment Guide Modal -->
     <div class="modal-backdrop hidden" id="backend-modal" role="dialog" aria-modal="true" aria-labelledby="backend-modal-title">
         <div class="modal-card">
             <div class="modal-header">
-                <h2 id="backend-modal-title">⚡ High-Speed JAX Backend Guide</h2>
+                <h2 id="backend-modal-title">⚡ Python JAX Solver Server Guide</h2>
                 <button type="button" class="modal-close-btn" id="backend-close-btn" aria-label="Close modal">&times;</button>
             </div>
             <div class="modal-body">
                 <section class="doc-section">
-                    <h3>Why use the Local JAX Backend?</h3>
-                    <p>When running in your browser, simulations execute in single-threaded JavaScript. Connecting to your local Python environment enables <strong>hardware-accelerated JAX (XLA)</strong> with exact analytical automatic differentiation, reducing optimization time from minutes down to <strong>~2 seconds</strong>.</p>
+                    <h3>Option A: Free Hugging Face Spaces Cloud Deployment (For Public Users)</h3>
+                    <p>To let any user run the Python solver from their browser without installing Python:</p>
+                    <ol style="margin-left: 1.25rem; font-size: 0.9rem; line-height: 1.6;">
+                        <li>Go to <a href="https://huggingface.co/new-space" target="_blank" style="color: var(--color-primary); text-decoration: underline;"><strong>huggingface.co/new-space</strong></a>.</li>
+                        <li>Name your space (e.g. <code>cv-solver-api</code>) and choose <strong>Docker</strong> as the Space SDK.</li>
+                        <li>Push or link this repository. Hugging Face will automatically build and host the high-speed JAX container for free.</li>
+                        <li>Paste your Space URL (e.g. <code>https://username-cv-solver-api.hf.space</code>) into the <strong>Python Server Endpoint</strong> field in Advanced Settings.</li>
+                    </ol>
                 </section>
 
                 <section class="doc-section">
-                    <h3>How to Launch the Local Backend (1-Step)</h3>
-                    <p>In your project folder (<code>C:\Users\rodri\OneDrive\Documents\Chem Project\cv_curve_ui</code>):</p>
+                    <h3>Option B: Local Python Backend (For Offline / Personal Use)</h3>
+                    <p>In your local project folder:</p>
                     <div class="code-snippet-box">
                         <code>Double-click: <strong>start_backend.bat</strong></code>
                     </div>
-                    <p>Or run directly in terminal / VS Code:</p>
+                    <p>Or run directly in your terminal:</p>
                     <div class="code-snippet-box">
                         <code>python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload</code>
                     </div>
                 </section>
 
                 <section class="doc-section">
-                    <h3>Instant Auto-Connection</h3>
-                    <p>Once the server starts on port 8000, this webpage will automatically detect it and display a green <span class="badge-tag-online">🟢 ⚡ Local JAX Engine Connected</span> indicator.</p>
+                    <h3>Automatic Status Connection</h3>
+                    <p>This web interface probes the server automatically and displays a green indicator once connected.</p>
                 </section>
             </div>
             <div class="modal-footer">

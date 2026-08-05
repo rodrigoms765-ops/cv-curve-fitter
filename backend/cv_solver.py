@@ -9,6 +9,8 @@ from jax.lax import scan
 import asyncio
 
 def load_and_preprocess_cv_data(df, pot_col, cur_col, scan_rate_v_s, skip_factor):
+    if isinstance(df, str):
+        df = pd.read_csv(df, sep=None, engine='python')
     if pot_col >= df.shape[1] or cur_col >= df.shape[1]:
         raise ValueError(f"Selected column index (Potential: {pot_col}, Current: {cur_col}) exceeds total available columns ({df.shape[1]}).")
         

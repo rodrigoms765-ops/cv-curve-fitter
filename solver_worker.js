@@ -25,8 +25,8 @@ function solveCVSimulation(fileContent, rawConfig) {
     const v_max = parseFloat(rawConfig.v_max || 1.0);
     const skip_factor = parseInt(rawConfig.skip_factor || 10, 10);
     const num_peaks = parseInt(rawConfig.num_peaks || 30, 10);
-    const max_iter = parseInt(rawConfig.max_iter || 50, 10);
-    const num_terms = parseInt(rawConfig.num_terms || 25, 10);
+    const max_iter = parseInt(rawConfig.max_iter || 100, 10);
+    const num_terms = parseInt(rawConfig.num_terms || 50, 10);
     const loss_weight_const = parseFloat(rawConfig.loss_weight_const || 1.0);
     const pot_col = parseInt(rawConfig.pot_col !== undefined ? rawConfig.pot_col : 8, 10);
     const cur_col = parseInt(rawConfig.cur_col !== undefined ? rawConfig.cur_col : 9, 10);
@@ -311,8 +311,8 @@ function solveCVSimulation(fileContent, rawConfig) {
     for (let i = 0; i < totalParamsCount; i++) all_indices.push(i);
 
     const stages = [
-        { label: "Stage 1: Pure Flat Baseline", active: idx_baseline, weights: global_weights_masked, iters: 25 },
-        { label: "Stage 1.5: Background Tails", active: idx_bg, weights: global_weights, iters: 25 },
+        { label: "Stage 1: Pure Flat Baseline", active: idx_baseline, weights: global_weights_masked, iters: max_iter },
+        { label: "Stage 1.5: Background Tails", active: idx_bg, weights: global_weights, iters: max_iter },
         { label: "Stage 2: Anchor Peaks (Constant D)", active: idx_baseline.concat(idx_bg, idx_diffusion_base, idx_peaks), weights: global_weights, iters: max_iter },
         { label: "Stage 3: Full Non-Linear Polish", active: all_indices, weights: global_weights, iters: max_iter }
     ];
@@ -697,22 +697,124 @@ function parseAndPreprocessCSV(content, potCol, curCol, scanRate, skipFactor) {
     };
 }
 
-// Savitzky-Golay 2nd Derivative Weights
-function computeLossWeights(currentArr, lossWeightConst) {
+// Savitzky-Golay 1D Filter matching scipy.signal.savgol_filter(x, window_length, polyorder, mode='interp')
+function savgolFilter(data, windowLength = 51, polyOrder = 3) {
+    const N = data.length;
+    if (N === 0) return new Float64Array(0);
+    const out = new Float64Array(N);
+
+    let W = Math.min(windowLength, N);
+    if (W % 2 === 0) W -= 1;
+    if (W <= polyOrder) {
+        for (let i = 0; i < N; i++) out[i] = data[i];
+        return out;
+    }
+
+    const M = (W - 1) / 2;
+
+    // Moments of t in [-M .. M]
+    const S0 = W;
+    const S2 = (M * (M + 1) * W) / 3.0;
+    const S4 = (M * (M + 1) * W * (3.0 * M * M + 3.0 * M - 1.0)) / 15.0;
+    const S6 = (M * (M + 1) * W * (3.0 * Math.pow(M, 4) + 6.0 * Math.pow(M, 3) - 3.0 * M + 1.0)) / 21.0;
+
+    const denomEven = S0 * S4 - S2 * S2;
+    const denomOdd = S2 * S6 - S4 * S4;
+
+    // Precompute central convolution kernel c(t) for t in [-M .. M]
+    const kernel = new Float64Array(W);
+    for (let t = -M; t <= M; t++) {
+        kernel[t + M] = (S4 - S2 * t * t) / denomEven;
+    }
+
+    // 1. Left boundary points (i = 0 .. M - 1)
+    // Fit polynomial of degree 3 to data[0 .. W - 1] with t in [-M .. M]
+    let sumX = 0, sumTX = 0, sumT2X = 0, sumT3X = 0;
+    for (let k = 0; k < W; k++) {
+        const t = k - M;
+        const xk = data[k];
+        sumX += xk;
+        sumTX += t * xk;
+        sumT2X += t * t * xk;
+        sumT3X += t * t * t * xk;
+    }
+    const p0_left = (S4 * sumX - S2 * sumT2X) / denomEven;
+    const p2_left = (-S2 * sumX + S0 * sumT2X) / denomEven;
+    const p1_left = (S6 * sumTX - S4 * sumT3X) / denomOdd;
+    const p3_left = (-S4 * sumTX + S2 * sumT3X) / denomOdd;
+
+    for (let i = 0; i < M; i++) {
+        const t = i - M;
+        out[i] = p0_left + p1_left * t + p2_left * t * t + p3_left * t * t * t;
+    }
+
+    // 2. Central points (i = M .. N - 1 - M) via convolution
+    for (let i = M; i < N - M; i++) {
+        let sum = 0.0;
+        for (let k = -M; k <= M; k++) {
+            sum += kernel[k + M] * data[i + k];
+        }
+        out[i] = sum;
+    }
+
+    // 3. Right boundary points (i = N - M .. N - 1)
+    // Fit polynomial of degree 3 to data[N - W .. N - 1] with t in [-M .. M]
+    sumX = 0; sumTX = 0; sumT2X = 0; sumT3X = 0;
+    const offsetRight = N - W;
+    for (let k = 0; k < W; k++) {
+        const t = k - M;
+        const xk = data[offsetRight + k];
+        sumX += xk;
+        sumTX += t * xk;
+        sumT2X += t * t * xk;
+        sumT3X += t * t * t * xk;
+    }
+    const p0_right = (S4 * sumX - S2 * sumT2X) / denomEven;
+    const p2_right = (-S2 * sumX + S0 * sumT2X) / denomEven;
+    const p1_right = (S6 * sumTX - S4 * sumT3X) / denomOdd;
+    const p3_right = (-S4 * sumTX + S2 * sumT3X) / denomOdd;
+
+    for (let i = N - M; i < N; i++) {
+        const t = i - (N - 1 - M);
+        out[i] = p0_right + p1_right * t + p2_right * t * t + p3_right * t * t * t;
+    }
+
+    return out;
+}
+
+// Savitzky-Golay 2nd Derivative Weights exactly matching scipy.signal.savgol_filter & FD_solver.ipynb
+function computeLossWeights(currentArr, lossWeightConst = 1.0) {
     const M = currentArr.length;
-    const weights = new Float64Array(M);
-    
-    const d2I = new Float64Array(M);
-    let maxD2 = 0;
-    for (let i = 1; i < M - 1; i++) {
-        const val = Math.abs(currentArr[i + 1] - 2.0 * currentArr[i] + currentArr[i - 1]);
-        d2I[i] = val;
+    if (M < 3) {
+        const w = new Float64Array(M);
+        w.fill(lossWeightConst);
+        return w;
+    }
+
+    // 1. Smooth current with Savitzky-Golay filter (window 51, polyorder 3)
+    const smoothed = savgolFilter(currentArr, 51, 3);
+
+    // 2. Discrete second derivative: d2I_raw = np.abs(np.diff(smoothed, n=2))
+    const d2I_raw = new Float64Array(M - 2);
+    let maxD2 = 0.0;
+    for (let i = 0; i < M - 2; i++) {
+        const val = Math.abs(smoothed[i + 2] - 2.0 * smoothed[i + 1] + smoothed[i]);
+        d2I_raw[i] = val;
         if (val > maxD2) maxD2 = val;
+    }
+
+    // 3. np.pad(d2I_raw, (1, 1), mode='edge')
+    const d2I = new Float64Array(M);
+    for (let i = 0; i < M - 2; i++) {
+        d2I[i + 1] = d2I_raw[i];
     }
     d2I[0] = d2I[1];
     d2I[M - 1] = d2I[M - 2];
-    if (maxD2 === 0) maxD2 = 1.0;
 
+    if (maxD2 <= 1e-18) maxD2 = 1.0;
+
+    // 4. loss_weights = (d2I / np.max(d2I)) + lossWeightConst
+    const weights = new Float64Array(M);
     for (let i = 0; i < M; i++) {
         weights[i] = (d2I[i] / maxD2) + lossWeightConst;
     }

@@ -44,10 +44,10 @@ async def handle_solver_websocket(websocket: WebSocket):
             "v_max": float(raw_config.get("v_max", 1.0)),
             "skip_factor": int(raw_config.get("skip_factor", 10)),
             "num_peaks": int(raw_config.get("num_peaks", 30)),
-            "max_iter": int(raw_config.get("max_iter", 50)),
+            "max_iter": int(raw_config.get("max_iter", 100)),
             "tol_ftol": float(raw_config.get("tol_ftol", 1e-8)),
             "tol_gtol": float(raw_config.get("tol_gtol", 1e-7)),
-            "num_terms": int(raw_config.get("num_terms", 25)),
+            "num_terms": int(raw_config.get("num_terms", 50)),
             "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0))
         }
         

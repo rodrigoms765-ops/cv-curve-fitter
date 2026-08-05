@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from functools import partial
 from scipy.optimize import minimize
 from scipy.signal import savgol_filter
 import jax
@@ -65,7 +66,7 @@ def create_staged_bounds(target_params, active_indices, v_min, v_max, num_global
             bounds.append(get_parameter_bounds(i, val, num_globals, v_min, v_max))
     return bounds
 
-@jax.jit(static_argnames=['num_terms'])
+@partial(jax.jit, static_argnames=['num_terms'])
 def run_fourier_simulation_with_data(time_array, potential_array, diffusivity, beta_left, beta_right, v_center, peaks_matrix, num_terms, thickness):
     n_arr = jnp.arange(1.0, num_terms + 1.0, dtype=jnp.float64)
     wavenumbers = (2.0 * n_arr - 1.0) * jnp.pi / (2.0 * thickness)

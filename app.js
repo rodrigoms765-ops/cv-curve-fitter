@@ -1,53 +1,13 @@
-// CV Curve Fitting Pro - Pure Python JAX + SciPy Engine Client
-// Connected to Python ZeroGPU Engine (Free ZeroGPU & CPU Ready)
+// Cyclic Voltammetry Parameter Extraction & Physical Model Fitting
+// High-Performance JAX Auto-Diff Engine Client
 
 // Global State
 let expPotential = [];
 let expCurrent = [];
 let latestResults = null;
 let stagedFileContent = null;
-let stagedFileName = "No file chosen";
+let stagedFileName = "No file selected";
 let detectedColumns = [];
-let isBackendAvailable = true;
-
-// Default endpoints
-const DEFAULT_LOCAL_URL = "http://127.0.0.1:8000";
-const DEFAULT_HF_SPACE_URL = "https://rodrigo1421-cv-curve-fitting.hf.space";
-
-function getStoredBackendUrl() {
-    return localStorage.getItem('cv_backend_url') || "";
-}
-
-function resolveEndpoints(rawUrl) {
-    let url = (rawUrl || "").trim().replace(/\/+$/, "");
-    if (!url) {
-        if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-            url = window.location.port ? `${window.location.protocol}//${window.location.host}` : DEFAULT_LOCAL_URL;
-        } else if (window.location.hostname.endsWith(".hf.space") || window.location.hostname.includes("huggingface.co")) {
-            url = `${window.location.protocol}//${window.location.host}`;
-        } else {
-            url = DEFAULT_HF_SPACE_URL;
-        }
-    }
-    return {
-        rawUrl: url,
-        httpHealth: url + "/health",
-        httpSolve: url + "/api/solve"
-    };
-}
-
-let currentEndpoints = resolveEndpoints(getStoredBackendUrl());
-
-// Probing Python Backend Engine
-async function probePythonBackend() {
-    const dot = document.getElementById('engine-dot');
-    const label = document.getElementById('engine-label');
-    const msg = document.getElementById('engine-status-msg');
-
-    if (dot) dot.className = 'status-dot online';
-    if (label) label.innerText = 'ZeroGPU A100 Active (100% Free)';
-    if (msg) msg.innerHTML = `<span style="color: #10b981; font-weight: 500;">✓ Connected to NVIDIA A100 (ZeroGPU)</span> &bull; JAX Auto-Diff Engine Ready ($0.00 / Free)`;
-}
 
 // Global Modal Handler
 window.toggleModal = function(modalId, show) {
@@ -75,31 +35,6 @@ window.toggleAdvanced = function() {
     }
 };
 
-// Global Backend URL Configuration
-window.saveBackendUrl = function() {
-    const urlInput = document.getElementById('backend-url-input');
-    if (urlInput) {
-        const val = urlInput.value.trim();
-        localStorage.setItem('cv_backend_url', val);
-        currentEndpoints = resolveEndpoints(val);
-        probePythonBackend();
-    }
-};
-
-window.setBackendPreset = function(presetType) {
-    const urlInput = document.getElementById('backend-url-input');
-    if (!urlInput) return;
-
-    if (presetType === 'origin') {
-        urlInput.value = window.location.origin;
-    } else if (presetType === 'hf') {
-        urlInput.value = DEFAULT_HF_SPACE_URL;
-    } else if (presetType === 'local') {
-        urlInput.value = DEFAULT_LOCAL_URL;
-    }
-    window.saveBackendUrl();
-};
-
 // Delimiter Detection
 function detectDelimiter(line) {
     const commas = (line.match(/,/g) || []).length;
@@ -110,7 +45,7 @@ function detectDelimiter(line) {
     return ',';
 }
 
-// Robust CSV Column Analysis & Dropdown Populator
+// Generalized 2-Column CSV Analysis & Dropdown Populator
 function analyzeCSVAndPopulateColumns(content) {
     const lines = content.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('#') && !l.trim().startsWith('//'));
     if (lines.length === 0) return;
@@ -141,28 +76,29 @@ function analyzeCSVAndPopulateColumns(content) {
         }
     }
 
+    let defaultPot = 0;
+    let defaultCur = colCount > 1 ? 1 : 0;
+
     for (let c = 0; c < colCount; c++) {
         let rawHeader = hasHeader && firstLineFields[c] ? firstLineFields[c] : `Column ${c}`;
-        let cycleNum = Math.floor(c / 4) + 1;
-        let isAdjusted = rawHeader.toLowerCase().includes('adjusted');
-        let isCurrent = rawHeader.toLowerCase().includes('current') || rawHeader.toLowerCase().includes('(a)');
-        let isPotential = rawHeader.toLowerCase().includes('potential') || rawHeader.toLowerCase().includes('(v)');
-
-        let typeStr = isPotential ? "Potential (V)" : (isCurrent ? "Current (A)" : rawHeader);
-        let adjStr = isAdjusted ? " [Adjusted]" : " [Raw]";
-        let cycleStr = colCount >= 8 ? `Cycle ${cycleNum}` : "";
+        let cleanHeader = rawHeader.replace(/["']/g, '');
         let ptsStr = ` (${colCounts[c].toLocaleString()} pts)`;
-
-        let displayName = `${cycleStr ? cycleStr + ' ' : ''}${typeStr}${adjStr}${ptsStr}`;
-        if (!hasHeader) displayName = `Column ${c}${ptsStr}`;
+        let displayName = `${cleanHeader}${ptsStr}`;
 
         detectedColumns.push({
             index: c,
             name: displayName,
-            rawName: rawHeader,
-            count: colCounts[c],
-            isAdjusted: isAdjusted
+            rawName: cleanHeader,
+            count: colCounts[c]
         });
+
+        // Smart column auto-detection based on header text
+        const lower = cleanHeader.toLowerCase();
+        if (lower.includes('potential') || lower.includes('volt') || lower === 'v' || lower.includes('(v)')) {
+            defaultPot = c;
+        } else if (lower.includes('current') || lower.includes('curr') || lower === 'i' || lower.includes('(a)') || lower.includes('amp')) {
+            defaultCur = c;
+        }
     }
 
     const potSelect = document.getElementById('pot_col');
@@ -186,58 +122,17 @@ function analyzeCSVAndPopulateColumns(content) {
             curSelect.appendChild(optC);
         });
 
-        let defaultPot = 0;
-        let defaultCur = colCount > 1 ? 1 : 0;
-
-        if (colCount >= 10) {
-            defaultPot = 8;
-            defaultCur = 9;
-        } else if (colCount >= 4) {
-            defaultPot = 0;
-            defaultCur = 1;
-        }
-
         potSelect.value = defaultPot;
         curSelect.value = defaultCur;
 
         if (metaBar && metaText) {
             metaBar.classList.add('visible');
-            metaText.innerHTML = `✓ Detected <strong>${colCount} columns</strong> &bull; Total <strong>${lines.length - startRow} rows</strong>`;
+            metaText.innerHTML = `Loaded <strong>${colCount} column${colCount > 1 ? 's' : ''}</strong> &bull; <strong>${lines.length - startRow} rows</strong>`;
         }
 
-        updateCycleButtonsActiveState(defaultPot, defaultCur);
         window.updateLivePreviewFromColumns();
     }
 }
-
-function updateCycleButtonsActiveState(pot, cur) {
-    const buttons = document.querySelectorAll('.preset-pill-btn');
-    buttons.forEach(btn => {
-        const bPot = parseInt(btn.getAttribute('data-pot'), 10);
-        const bCur = parseInt(btn.getAttribute('data-cur'), 10);
-        if (bPot === pot && bCur === cur) {
-            btn.classList.add('active');
-        } else {
-            btn.classList.remove('active');
-        }
-    });
-}
-
-// Global Cycle Preset Click Handler
-window.applyCyclePreset = function(pot, cur, skip, btn) {
-    const potSelect = document.getElementById('pot_col');
-    const curSelect = document.getElementById('cur_col');
-    const skipInput = document.getElementById('skip_factor');
-    if (skip && skipInput) {
-        skipInput.value = skip;
-    }
-    if (potSelect && curSelect) {
-        potSelect.value = pot;
-        curSelect.value = cur;
-        updateCycleButtonsActiveState(pot, cur);
-        window.updateLivePreviewFromColumns();
-    }
-};
 
 // Global Live Preview & Baseline Plotter
 window.updateLivePreviewFromColumns = function() {
@@ -249,7 +144,6 @@ window.updateLivePreviewFromColumns = function() {
 
     const potCol = parseInt(potSelect.value, 10);
     const curCol = parseInt(curSelect.value, 10);
-    updateCycleButtonsActiveState(potCol, curCol);
 
     const lines = stagedFileContent.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('#') && !l.trim().startsWith('//'));
     if (lines.length === 0) return;
@@ -294,8 +188,8 @@ window.updateLivePreviewFromColumns = function() {
         const vMinInput = document.getElementById('v_min');
         const vMaxInput = document.getElementById('v_max');
         if (vMinInput && vMaxInput) {
-            vMinInput.value = vMin.toFixed(2);
-            vMaxInput.value = vMax.toFixed(2);
+            vMinInput.value = vMin.toFixed(3);
+            vMaxInput.value = vMax.toFixed(3);
         }
 
         const vRangeSpan = document.getElementById('stat-v-range');
@@ -303,14 +197,14 @@ window.updateLivePreviewFromColumns = function() {
         const ptsSpan = document.getElementById('stat-points-count');
         const statsBox = document.getElementById('col-stats-preview');
 
-        if (vRangeSpan) vRangeSpan.innerText = `${vMin.toFixed(2)}V to ${vMax.toFixed(2)}V`;
-        if (iRangeSpan) iRangeSpan.innerText = `${iMin.toExponential(2)}A to ${iMax.toExponential(2)}A`;
+        if (vRangeSpan) vRangeSpan.innerText = `${vMin.toFixed(3)} V to ${vMax.toFixed(3)} V`;
+        if (iRangeSpan) iRangeSpan.innerText = `${iMin.toExponential(2)} A to ${iMax.toExponential(2)} A`;
         if (ptsSpan) ptsSpan.innerText = `${previewPot.length.toLocaleString()}`;
         if (statsBox) statsBox.classList.add('visible');
 
         const statusDetails = document.getElementById('status-details');
         if (statusDetails) {
-            statusDetails.innerHTML = `Loaded <strong>${stagedFileName}</strong> &bull; Col ${potCol} (V) &amp; Col ${curCol} (I) &bull; ${previewPot.length} points ready for JAX optimization.`;
+            statusDetails.innerHTML = `Loaded <strong>${stagedFileName}</strong> &bull; Potential (Col ${potCol}) &amp; Current (Col ${curCol}) &bull; ${previewPot.length.toLocaleString()} points ready for optimization.`;
         }
 
         renderInitialExpPlot(previewPot, previewCur);
@@ -388,7 +282,7 @@ window.handleFormSubmit = async function(e) {
     if (e && e.preventDefault) e.preventDefault();
     
     if (!stagedFileContent) {
-        alert('Please select and upload a CSV data file first.');
+        alert('Please select and upload a cyclic voltammetry CSV data file first.');
         return false;
     }
 
@@ -411,8 +305,8 @@ window.handleFormSubmit = async function(e) {
 async function executeZeroGPUSolver(fileContent, config) {
     const stageEl = document.getElementById('status-stage');
     const detailsEl = document.getElementById('status-details');
-    if (stageEl) stageEl.innerText = '⚡ ZeroGPU A100 Optimizing...';
-    if (detailsEl) detailsEl.innerText = 'Allocating NVIDIA A100 GPU • Multi-stage JAX L-BFGS-B optimization running...';
+    if (stageEl) stageEl.innerText = '⚡ Optimizing Physical Model Parameters...';
+    if (detailsEl) detailsEl.innerText = 'Executing multi-stage non-linear L-BFGS-B optimization on JAX auto-diff engine...';
 
     // 1. Native Gradio ZeroGPU Queue Trigger
     const fileSet = setGradioInputValue('#gr_input_file', fileContent);
@@ -421,7 +315,6 @@ async function executeZeroGPUSolver(fileContent, config) {
 
     if (fileSet && configSet && grBtn) {
         const startTime = Date.now();
-        // Clear previous output
         setGradioInputValue('#gr_output_json', '');
 
         const pollInterval = setInterval(() => {
@@ -441,24 +334,24 @@ async function executeZeroGPUSolver(fileContent, config) {
             }
 
             const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
-            if (stageEl) stageEl.innerText = `⚡ ZeroGPU JAX Engine (${elapsedSec}s)...`;
-            if (detailsEl) detailsEl.innerText = `NVIDIA A100 GPU Active • Running multi-stage physics optimization...`;
+            if (stageEl) stageEl.innerText = `⚡ Non-Linear Parameter Extraction (${elapsedSec}s)...`;
+            if (detailsEl) detailsEl.innerText = `Solving 1D diffusion PDE and optimizing Fermi-Dirac DOS sub-bands...`;
 
             if (Date.now() - startTime > 180000) {
                 clearInterval(pollInterval);
                 handleSolverError("Optimization calculation timed out (3 min).");
             }
-        }, 600);
+        }, 500);
 
         grBtn.click();
         return;
     }
 
-    // 2. HTTP POST fallback for direct standalone hosting
+    // 2. Direct HTTP POST fallback
     const endpoints = [
         window.location.origin + "/api/solve",
         window.location.origin + "/solve",
-        DEFAULT_LOCAL_URL + "/api/solve"
+        "http://127.0.0.1:8000/api/solve"
     ];
 
     for (const endpoint of endpoints) {
@@ -486,7 +379,7 @@ async function executeZeroGPUSolver(fileContent, config) {
         }
     }
 
-    handleSolverError("Could not reach ZeroGPU backend server. Please verify your Space is running.");
+    handleSolverError("Could not communicate with solver engine. Please verify the space is running.");
 }
 
 function handleSolverMessage(data) {
@@ -494,14 +387,14 @@ function handleSolverMessage(data) {
     const detailsEl = document.getElementById('status-details');
 
     if (data.type === 'done') {
-        if (stageEl) stageEl.innerText = '✓ Optimization Successfully Converged';
-        if (detailsEl) detailsEl.innerText = `Calculated on NVIDIA A100 GPU in ${data.total_iterations || 100} iterations.`;
+        if (stageEl) stageEl.innerText = '✓ Physical Model Parameters Successfully Extracted';
+        if (detailsEl) detailsEl.innerText = `Optimization converged in ${data.total_iterations || 100} iterations. Model fit overlay and diagnostic spectra rendered below.`;
         
         stopOptimizationUI();
         latestResults = data;
         displayExtractedResults(data);
 
-        // Update main plot with final simulation overlay
+        // Update primary plot with simulation overlay
         if (data.plots && data.plots.sim_current && window.Plotly) {
             updateLivePlotProgress({
                 potential: data.plots.exp_potential,
@@ -516,10 +409,10 @@ function handleSolverMessage(data) {
 function handleSolverError(msg) {
     const stageEl = document.getElementById('status-stage');
     const detailsEl = document.getElementById('status-details');
-    if (stageEl) stageEl.innerText = '❌ Optimization Notice';
+    if (stageEl) stageEl.innerText = '❌ Calculation Notice';
     if (detailsEl) detailsEl.innerText = msg;
     stopOptimizationUI();
-    alert(`Solver: ${msg}`);
+    alert(`Solver Message: ${msg}`);
 }
 
 function startOptimizationUI() {
@@ -528,7 +421,7 @@ function startOptimizationUI() {
     if (spinner) spinner.classList.remove('hidden');
     if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.innerText = 'Optimizing in JAX...';
+        submitBtn.innerText = 'Extracting Parameters...';
     }
 }
 
@@ -542,21 +435,24 @@ function stopOptimizationUI() {
     }
 }
 
-// Plotly Visualizations
+// Scientific Academic Plotly Layout Configuration
 const layoutConfig = {
     paper_bgcolor: 'transparent',
     plot_bgcolor: 'transparent',
-    font: { family: 'Roboto, sans-serif', color: '#64748b', size: 12 },
-    margin: { l: 65, r: 25, t: 35, b: 50 },
+    font: { family: 'Inter, -apple-system, sans-serif', color: '#94a3b8', size: 12 },
+    margin: { l: 75, r: 35, t: 40, b: 55 },
     xaxis: {
-        gridcolor: 'rgba(255, 255, 255, 0.05)',
-        zerolinecolor: 'rgba(255, 255, 255, 0.1)',
-        tickfont: { color: '#94a3b8' }
+        gridcolor: 'rgba(255, 255, 255, 0.07)',
+        zerolinecolor: 'rgba(255, 255, 255, 0.15)',
+        tickfont: { color: '#94a3b8', size: 11 },
+        titlefont: { color: '#f1f5f9', size: 13 }
     },
     yaxis: {
-        gridcolor: 'rgba(255, 255, 255, 0.05)',
-        zerolinecolor: 'rgba(255, 255, 255, 0.1)',
-        tickfont: { color: '#94a3b8' }
+        gridcolor: 'rgba(255, 255, 255, 0.07)',
+        zerolinecolor: 'rgba(255, 255, 255, 0.15)',
+        tickfont: { color: '#94a3b8', size: 11 },
+        titlefont: { color: '#f1f5f9', size: 13 },
+        tickformat: '.2e'
     }
 };
 
@@ -567,19 +463,19 @@ function renderInitialExpPlot(pot, cur) {
         y: cur,
         mode: 'lines',
         type: 'scatter',
-        name: 'Experimental CV',
-        line: { color: '#38bdf8', width: 2 }
+        name: 'Experimental Voltammogram',
+        line: { color: '#38bdf8', width: 2.2 }
     };
 
     const layout = Object.assign({}, layoutConfig, {
-        title: { text: `Cyclic Voltammogram: ${stagedFileName}`, font: { size: 14 } },
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Applied Potential (V)' }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current (A)' }),
+        title: { text: `Cyclic Voltammogram (${stagedFileName})`, font: { color: '#ffffff', size: 14 } },
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Applied Potential <i>V</i> (V vs. Ref)' }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current <i>I</i> (A)' }),
         showlegend: true,
-        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(15, 23, 42, 0.7)' }
+        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(15, 23, 42, 0.8)', font: { color: '#f1f5f9' } }
     });
 
-    Plotly.react('live-chart', [traceExp], layout, { responsive: true });
+    Plotly.react('live-chart', [traceExp], layout, { responsive: true, displaylogo: false });
 }
 
 function updateLivePlotProgress(currentFit) {
@@ -590,7 +486,7 @@ function updateLivePlotProgress(currentFit) {
         mode: 'lines',
         type: 'scatter',
         name: 'Experimental Data',
-        line: { color: '#38bdf8', width: 2 }
+        line: { color: '#38bdf8', width: 2.2 }
     };
 
     const traceSim = {
@@ -598,19 +494,19 @@ function updateLivePlotProgress(currentFit) {
         y: currentFit.current,
         mode: 'lines',
         type: 'scatter',
-        name: 'JAX Model Fit',
-        line: { color: '#f43f5e', width: 2.5 }
+        name: 'Fitted Physical Model',
+        line: { color: '#f43f5e', width: 2.6 }
     };
 
     const layout = Object.assign({}, layoutConfig, {
-        title: { text: 'Live Hardware-Accelerated JAX Fit Overlay', font: { size: 14 } },
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)' }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current (A)' }),
+        title: { text: 'Experimental vs. Fitted Cyclic Voltammogram Overlay', font: { color: '#ffffff', size: 14 } },
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Applied Potential <i>V</i> (V vs. Ref)' }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current <i>I</i> (A)' }),
         showlegend: true,
-        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(15, 23, 42, 0.7)' }
+        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(15, 23, 42, 0.8)', font: { color: '#f1f5f9' } }
     });
 
-    Plotly.react('live-chart', [traceExp, traceSim], layout, { responsive: true });
+    Plotly.react('live-chart', [traceExp, traceSim], layout, { responsive: true, displaylogo: false });
 }
 
 function displayExtractedResults(results) {
@@ -623,12 +519,12 @@ function displayExtractedResults(results) {
         const params = results.params || {};
 
         const cards = [
-            { label: 'Baseline Diffusivity (D₀)', value: `${(params.D0 || 0).toExponential(3)} cm²/s` },
-            { label: 'Central Voltage (V_c)', value: `${(params.Vc || 0).toFixed(4)} V` },
-            { label: 'Asymmetry Left (β_L)', value: `${(params.beta_L || 0).toFixed(4)} V⁻²` },
-            { label: 'Asymmetry Right (β_R)', value: `${(params.beta_R || 0).toFixed(4)} V⁻²` },
-            { label: 'DC Current Offset (I_offset)', value: `${(params.I_offset || 0).toExponential(3)} A` },
-            { label: 'Final Objective Loss', value: results.final_loss ? results.final_loss.toExponential(4) : 'N/A' }
+            { label: 'Diffusivity Constant (D₀)', value: `${(params.D0 || 0).toExponential(3)} cm²/s` },
+            { label: 'Thermodynamic Potential (V_c)', value: `${(params.Vc || 0).toFixed(4)} V` },
+            { label: 'Asymmetry Factor Left (β_L)', value: `${(params.beta_L || 0).toFixed(4)} V⁻²` },
+            { label: 'Asymmetry Factor Right (β_R)', value: `${(params.beta_R || 0).toFixed(4)} V⁻²` },
+            { label: 'Baseline DC Offset (I_offset)', value: `${(params.I_offset || 0).toExponential(3)} A` },
+            { label: 'Objective Loss (L_final)', value: results.final_loss ? results.final_loss.toExponential(4) : 'Converged' }
         ];
 
         cards.forEach(c => {
@@ -660,7 +556,8 @@ function renderSecondaryPlots(plots) {
                 mode: 'lines',
                 type: 'scatter',
                 name: `Sub-band ${i+1}`,
-                line: { width: 1, dash: 'dot' }
+                line: { width: 1, dash: 'dot', color: 'rgba(56, 189, 248, 0.35)' },
+                showlegend: false
             });
         });
     }
@@ -675,13 +572,13 @@ function renderSecondaryPlots(plots) {
     });
 
     const dosLayout = Object.assign({}, layoutConfig, {
-        title: { text: 'Extracted Density of States DOS(V)', font: { size: 14 } },
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)', autorange: true }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'DOS (a.u.)', autorange: true }),
+        title: { text: 'Extracted Density of States DOS(V)', font: { color: '#ffffff', size: 14 } },
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. Ref)', autorange: true }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'DOS (a.u.)', autorange: true, tickformat: '.2e' }),
         showlegend: false
     });
 
-    Plotly.react('dos-chart', dosTraces, dosLayout, { responsive: true });
+    Plotly.react('dos-chart', dosTraces, dosLayout, { responsive: true, displaylogo: false });
 
     // Diffusivity D(V) Plot
     const traceDiff = {
@@ -694,20 +591,20 @@ function renderSecondaryPlots(plots) {
     };
 
     const diffLayout = Object.assign({}, layoutConfig, {
-        title: { text: 'Voltage-Dependent Diffusivity D(V)', font: { size: 14 } },
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)', autorange: true }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Diffusivity (cm²/s)', type: 'log', autorange: true }),
+        title: { text: 'Voltage-Dependent Diffusivity Profile D(V)', font: { color: '#ffffff', size: 14 } },
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. Ref)', autorange: true }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Diffusivity <i>D</i> (cm²/s)', type: 'log', autorange: true, tickformat: '.1e' }),
         showlegend: false
     });
 
-    Plotly.react('diffusivity-chart', [traceDiff], diffLayout, { responsive: true });
+    Plotly.react('diffusivity-chart', [traceDiff], diffLayout, { responsive: true, displaylogo: false });
 }
 
 // Global Export Functions
 window.exportResultsJson = function() {
     if (!latestResults) return;
     const jsonStr = JSON.stringify(latestResults, null, 2);
-    downloadFile(jsonStr, 'cv_optimization_results.json', 'application/json');
+    downloadFile(jsonStr, 'cv_extracted_parameters.json', 'application/json');
 };
 
 window.exportResultsCsv = function() {
@@ -726,7 +623,7 @@ window.exportResultsCsv = function() {
         rows.push(`${i},${pot},${expCur},${simCur},${vp},${dv},${dos}`);
     }
 
-    downloadFile(rows.join("\n"), 'cv_optimization_data.csv', 'text/csv');
+    downloadFile(rows.join("\n"), 'cv_extracted_curves.csv', 'text/csv');
 };
 
 function downloadFile(content, fileName, contentType) {
@@ -744,12 +641,24 @@ function downloadFile(content, fileName, contentType) {
 
 // Master Initialization Function
 window.__initCVApp = function() {
-    probePythonBackend();
-    const urlInput = document.getElementById('backend-url-input');
-    if (urlInput && !urlInput.value) {
-        urlInput.value = getStoredBackendUrl() || currentEndpoints.rawUrl;
+    // Check initial layout resize trigger
+    if (window.Plotly && expPotential.length > 0) {
+        Plotly.Plots.resize('live-chart');
     }
 };
+
+// Window resize observer to keep Plotly charts perfectly proportioned
+window.addEventListener('resize', () => {
+    if (window.Plotly) {
+        const chartIds = ['live-chart', 'dos-chart', 'diffusivity-chart'];
+        chartIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el && el.data) {
+                Plotly.Plots.resize(id);
+            }
+        });
+    }
+});
 
 // Run initialization immediately and on DOM load
 if (typeof document !== 'undefined') {

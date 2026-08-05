@@ -38,7 +38,7 @@ def gradio_solve_cv(file_content: str, config_json: str):
     """ZeroGPU registered execution point for JAX optimization."""
     try:
         if not file_content or not file_content.strip():
-            return json.dumps({"type": "error", "message": "No CSV file content provided. Please upload a CV data file."})
+            return json.dumps({"type": "error", "message": "No CSV data file content provided. Please upload a cyclic voltammetry data file."})
 
         raw_config = json.loads(config_json) if isinstance(config_json, str) else (config_json or {})
         config = {
@@ -54,8 +54,8 @@ def gradio_solve_cv(file_content: str, config_json: str):
             "num_terms": int(raw_config.get("num_terms", 50)),
             "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0))
         }
-        pot_col = int(raw_config.get("pot_col", 8))
-        cur_col = int(raw_config.get("cur_col", 9))
+        pot_col = int(raw_config.get("pot_col", 0))
+        cur_col = int(raw_config.get("cur_col", 1))
 
         df = pd.read_csv(io.StringIO(file_content), sep=None, engine='python')
         result_dict = solve_cv(df, config, pot_col, cur_col, queue=None, loop=None)
@@ -111,9 +111,7 @@ def health_info():
     devices = [str(d) for d in jax.devices()]
     return {
         "status": "ok",
-        "engine": "JAX Hardware Accelerated (ZeroGPU A100)",
-        "hardware": "NVIDIA A100 / Hugging Face ZeroGPU",
-        "cost": "100% Free",
+        "engine": "JAX Auto-Diff Hardware Accelerated Engine",
         "devices": devices
     }
 
@@ -127,17 +125,17 @@ try:
 
     head_html = f"""
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
     {app_css}
     footer {{visibility: hidden !important; display: none !important;}}
-    .gradio-container {{max-width: 100% !important; padding: 0 !important; margin: 0 !important; background: #0f172a !important;}}
+    .gradio-container {{max-width: 100% !important; padding: 0 !important; margin: 0 !important; background: #0b1120 !important;}}
     .prose {{max-width: 100% !important;}}
     .hidden-bridge {{position: absolute !important; opacity: 0 !important; pointer-events: none !important; height: 0 !important; width: 0 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; border: none !important;}}
     </style>
     """
 
-    with gr.Blocks(title="CV Curve Fitting Pro - JAX Engine", head=head_html, js=app_js) as demo:
+    with gr.Blocks(title="Cyclic Voltammetry Parameter Extraction & Physical Model Fitting", head=head_html, js=app_js) as demo:
         # Native Gradio components for ZeroGPU hardware event dispatching
         gr_input_file = gr.Textbox(value="", elem_id="gr_input_file", elem_classes=["hidden-bridge"])
         gr_input_config = gr.Textbox(value="{}", elem_id="gr_input_config", elem_classes=["hidden-bridge"])
@@ -180,7 +178,7 @@ except ImportError:
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 7860))
     if has_gradio:
-        print(f"Starting Gradio + ZeroGPU server on port {port}...")
+        print(f"Starting Gradio server on port {port}...")
         demo.queue().launch(server_name="0.0.0.0", server_port=port, share=False)
     else:
         import uvicorn

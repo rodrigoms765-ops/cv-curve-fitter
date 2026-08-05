@@ -3,114 +3,78 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CV Curve Fitting Pro | Physics-Based JAX Optimization Engine</title>
+    <title>Cyclic Voltammetry Parameter Extraction &amp; Physical Model Fitting</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" charset="utf-8"></script>
 </head>
 <body>
-    <!-- Top Navigation Bar -->
+    <!-- Top Academic Navigation Bar -->
     <nav class="top-nav">
         <div class="nav-container">
             <div class="nav-brand">
-                <span class="brand-title">⚡ CV Curve Fitting Pro</span>
-                <span class="brand-subtitle">JAX Diffusion &amp; DOS Optimizer (Free ZeroGPU &bull; NVIDIA A100)</span>
+                <span class="brand-title">Cyclic Voltammetry Analysis</span>
+                <span class="brand-subtitle">Physical Model &amp; Non-Linear JAX Parameter Extraction</span>
             </div>
             <div class="nav-links">
-                <div class="engine-badge-btn" id="engine-status-badge" onclick="window.toggleModal && window.toggleModal('backend-modal', true);" title="Click to view backend connection guide">
-                    <span class="status-dot probing" id="engine-dot"></span>
-                    <span class="engine-text" id="engine-label">Probing JAX Engine...</span>
+                <div class="engine-badge" id="engine-status-badge">
+                    <span class="status-dot online" id="engine-dot"></span>
+                    <span class="engine-text" id="engine-label">JAX Optimization Engine Ready</span>
                 </div>
-                <a href="#solver" id="nav-solver-btn" class="active">Solver</a>
-                <a href="#documentation" id="nav-doc-btn" onclick="window.toggleModal && window.toggleModal('doc-modal', true);">Documentation</a>
+                <button type="button" class="nav-btn-link" id="nav-theory-btn" onclick="window.toggleModal && window.toggleModal('theory-modal', true);">Theory &amp; Equations</button>
             </div>
         </div>
     </nav>
 
-    <!-- Main Layout Container -->
-    <main class="app-container" id="solver">
+    <!-- Main Fluid Layout Container -->
+    <main class="app-container">
         <div class="content-grid">
-            <!-- Left Column: Controls -->
-            <div class="controls-column">
-                <section class="panel">
+            <!-- Left Sidebar: Parameters & Data Configuration -->
+            <aside class="controls-column">
+                <section class="panel control-panel">
                     <header class="panel-header">
-                        <h2>Optimization Configuration</h2>
+                        <h2>Experiment Configuration</h2>
                     </header>
                     <div class="panel-body">
                         <form id="cv-form" onsubmit="window.handleFormSubmit && window.handleFormSubmit(event);">
-                            <!-- File Upload & Drag-and-Drop Area -->
-                            <div class="form-group file-upload-wrapper" id="drop-zone" onclick="document.getElementById('csv-file') && document.getElementById('csv-file').click();" ondragover="event.preventDefault(); event.stopPropagation(); this.classList.add('dragover');" ondragleave="event.preventDefault(); event.stopPropagation(); this.classList.remove('dragover');" ondrop="event.preventDefault(); event.stopPropagation(); this.classList.remove('dragover'); window.handleCSVDrop && window.handleCSVDrop(event);" style="cursor: pointer;">
-                                <label style="pointer-events: none;">Upload Cyclic Voltammetry File (.csv)</label>
-                                <div class="file-upload-custom" style="pointer-events: none;">
-                                    <span class="btn-secondary" id="choose-file-btn">📁 Choose CSV File</span>
-                                    <span class="drag-hint">or drag and drop file here</span>
+                            <!-- File Upload Area -->
+                            <div class="form-group file-upload-wrapper" id="drop-zone" onclick="document.getElementById('csv-file') && document.getElementById('csv-file').click();" ondragover="event.preventDefault(); event.stopPropagation(); this.classList.add('dragover');" ondragleave="event.preventDefault(); event.stopPropagation(); this.classList.remove('dragover');" ondrop="event.preventDefault(); event.stopPropagation(); this.classList.remove('dragover'); window.handleCSVDrop && window.handleCSVDrop(event);">
+                                <label class="section-label">Voltammetry Data File (.csv)</label>
+                                <div class="file-upload-box">
+                                    <span class="file-icon">📄</span>
+                                    <span class="btn-file-select" id="choose-file-btn">Choose CSV Data</span>
+                                    <span class="drag-hint">or drop file here</span>
                                 </div>
-                                <div class="file-name-row" style="pointer-events: none;">
-                                    <span id="file-name-display">No file chosen</span>
+                                <div class="file-status-row">
+                                    <span id="file-name-display">No file selected</span>
                                 </div>
-                                <input type="file" id="csv-file" name="file" accept=".csv,.txt" class="hidden-file-input" onchange="window.handleCSVFileChange && window.handleCSVFileChange(this);" onclick="event.stopPropagation();">
+                                <input type="file" id="csv-file" name="file" accept=".csv,.txt,.dat" class="hidden-file-input" onchange="window.handleCSVFileChange && window.handleCSVFileChange(this);" onclick="event.stopPropagation();">
                             </div>
 
-                            <!-- Data Mapping & Column Selector -->
+                            <!-- Generalized 2-Column Data Mapping -->
                             <fieldset class="form-section">
-                                <legend>Column Selection &amp; Cycle Presets</legend>
-                                <div class="cycle-preset-container" id="cycle-preset-container">
-                                    <div class="preset-row">
-                                        <span class="preset-cycle-tag">Cycle 1:</span>
-                                        <button type="button" class="preset-pill-btn" data-pot="0" data-cur="1" data-skip="5" onclick="window.applyCyclePreset && window.applyCyclePreset(0, 1, 5, this);">Raw (0, 1)</button>
-                                        <button type="button" class="preset-pill-btn" data-pot="2" data-cur="3" data-skip="1" onclick="window.applyCyclePreset && window.applyCyclePreset(2, 3, 1, this);">Adjusted (2, 3)</button>
-                                    </div>
-                                    <div class="preset-row">
-                                        <span class="preset-cycle-tag">Cycle 2:</span>
-                                        <button type="button" class="preset-pill-btn" data-pot="4" data-cur="5" data-skip="5" onclick="window.applyCyclePreset && window.applyCyclePreset(4, 5, 5, this);">Raw (4, 5)</button>
-                                        <button type="button" class="preset-pill-btn" data-pot="6" data-cur="7" data-skip="1" onclick="window.applyCyclePreset && window.applyCyclePreset(6, 7, 1, this);">Adjusted (6, 7)</button>
-                                    </div>
-                                    <div class="preset-row">
-                                        <span class="preset-cycle-tag">Cycle 3:</span>
-                                        <button type="button" class="preset-pill-btn active" data-pot="8" data-cur="9" data-skip="5" onclick="window.applyCyclePreset && window.applyCyclePreset(8, 9, 5, this);">Raw (8, 9)</button>
-                                        <button type="button" class="preset-pill-btn" data-pot="10" data-cur="11" data-skip="1" onclick="window.applyCyclePreset && window.applyCyclePreset(10, 11, 1, this);">Adjusted (10, 11)</button>
-                                    </div>
-                                    <div class="preset-row">
-                                        <span class="preset-cycle-tag">Cycle 4:</span>
-                                        <button type="button" class="preset-pill-btn" data-pot="12" data-cur="13" data-skip="5" onclick="window.applyCyclePreset && window.applyCyclePreset(12, 13, 5, this);">Raw (12, 13)</button>
-                                        <button type="button" class="preset-pill-btn" data-pot="14" data-cur="15" data-skip="1" onclick="window.applyCyclePreset && window.applyCyclePreset(14, 15, 1, this);">Adjusted (14, 15)</button>
-                                    </div>
-                                </div>
+                                <legend>Data Columns</legend>
                                 <div class="input-grid">
                                     <div class="form-group">
                                         <label for="pot_col">Potential (V) Column</label>
-                                        <select id="pot_col" name="pot_col" class="engine-dropdown" onchange="window.updateLivePreviewFromColumns && window.updateLivePreviewFromColumns();" required>
-                                            <option value="8">Col 8: Cycle 3 Potential (V) [Raw]</option>
-                                            <option value="10">Col 10: Cycle 3 Potential (V) [Adjusted]</option>
-                                            <option value="0">Col 0: Cycle 1 Potential (V) [Raw]</option>
-                                            <option value="2">Col 2: Cycle 1 Potential (V) [Adjusted]</option>
-                                            <option value="4">Col 4: Cycle 2 Potential (V) [Raw]</option>
-                                            <option value="6">Col 6: Cycle 2 Potential (V) [Adjusted]</option>
-                                            <option value="12">Col 12: Cycle 4 Potential (V) [Raw]</option>
-                                            <option value="14">Col 14: Cycle 4 Potential (V) [Adjusted]</option>
+                                        <select id="pot_col" name="pot_col" class="academic-dropdown" onchange="window.updateLivePreviewFromColumns && window.updateLivePreviewFromColumns();" required>
+                                            <option value="0">Column 0: Potential (V)</option>
                                         </select>
                                     </div>
                                     <div class="form-group">
                                         <label for="cur_col">Current (A) Column</label>
-                                        <select id="cur_col" name="cur_col" class="engine-dropdown" onchange="window.updateLivePreviewFromColumns && window.updateLivePreviewFromColumns();" required>
-                                            <option value="9">Col 9: Cycle 3 Current (A) [Raw]</option>
-                                            <option value="11">Col 11: Cycle 3 Current (A) [Adjusted]</option>
-                                            <option value="1">Col 1: Cycle 1 Current (A) [Raw]</option>
-                                            <option value="3">Col 3: Cycle 1 Current (A) [Adjusted]</option>
-                                            <option value="5">Col 5: Cycle 2 Current (A) [Raw]</option>
-                                            <option value="7">Col 7: Cycle 2 Current (A) [Adjusted]</option>
-                                            <option value="13">Col 13: Cycle 4 Current (A) [Raw]</option>
-                                            <option value="15">Col 15: Cycle 4 Current (A) [Adjusted]</option>
+                                        <select id="cur_col" name="cur_col" class="academic-dropdown" onchange="window.updateLivePreviewFromColumns && window.updateLivePreviewFromColumns();" required>
+                                            <option value="1">Column 1: Current (A)</option>
                                         </select>
                                     </div>
                                 </div>
                                 <div class="column-meta-bar" id="column-meta-bar">
-                                    <span id="detected-columns-text">Upload a CSV to auto-detect columns</span>
+                                    <span id="detected-columns-text">Select or drop a CSV file to inspect columns</span>
                                 </div>
                                 <div class="col-stats-preview" id="col-stats-preview">
-                                    <div class="stat-item"><span class="stat-label">V Range:</span> <span id="stat-v-range">-1.00V to 1.00V</span></div>
-                                    <div class="stat-item"><span class="stat-label">I Range:</span> <span id="stat-i-range">-3.24e-5A to 6.83e-5A</span></div>
-                                    <div class="stat-item"><span class="stat-label">Points:</span> <span id="stat-points-count">0</span></div>
+                                    <div class="stat-pill"><span class="stat-k">V Range:</span> <span class="stat-v" id="stat-v-range">-</span></div>
+                                    <div class="stat-pill"><span class="stat-k">I Range:</span> <span class="stat-v" id="stat-i-range">-</span></div>
+                                    <div class="stat-pill"><span class="stat-k">Data Points:</span> <span class="stat-v" id="stat-points-count">0</span></div>
                                 </div>
                             </fieldset>
 
@@ -119,41 +83,40 @@
                                 <legend>Physical &amp; Electrochemical Parameters</legend>
                                 <div class="input-grid">
                                     <div class="form-group">
-                                        <label for="scan_rate" title="Cyclic voltammetry scan speed">Scan Rate &nu; (V/s)</label>
+                                        <label for="scan_rate">Scan Rate <i>&nu;</i> (V/s)</label>
                                         <input type="number" id="scan_rate" name="scan_rate" step="0.001" value="0.010" required>
                                     </div>
                                     <div class="form-group">
-                                        <label for="film_thickness" title="Electrode thin film thickness L">Film Thickness L (cm)</label>
+                                        <label for="film_thickness">Film Thickness <i>L</i> (cm)</label>
                                         <input type="number" id="film_thickness" name="film_thickness" step="1e-6" value="0.0001" required>
                                     </div>
                                     <div class="form-group">
-                                        <label for="v_min">Min Potential V<sub>min</sub> (V)</label>
+                                        <label for="v_min">Potential Range <i>V</i><sub>min</sub> (V)</label>
                                         <input type="number" id="v_min" name="v_min" step="0.05" value="-1.0" required>
                                     </div>
                                     <div class="form-group">
-                                        <label for="v_max">Max Potential V<sub>max</sub> (V)</label>
+                                        <label for="v_max">Potential Range <i>V</i><sub>max</sub> (V)</label>
                                         <input type="number" id="v_max" name="v_max" step="0.05" value="1.0" required>
                                     </div>
                                     <div class="form-group">
-                                        <label for="skip_factor" title="Downsample factor for faster execution">Downsample Factor</label>
+                                        <label for="skip_factor">Downsample Factor</label>
                                         <input type="number" id="skip_factor" name="skip_factor" min="1" max="50" value="5" required>
                                     </div>
                                     <div class="form-group">
-                                        <label for="num_peaks" title="Number of Gaussian basis peaks for DOS deconvolution">Gaussian Peak Count</label>
+                                        <label for="num_peaks">Gaussian Peak Count</label>
                                         <input type="number" id="num_peaks" name="num_peaks" min="5" max="100" value="50" required>
                                     </div>
                                 </div>
                             </fieldset>
                             
-                            <!-- Advanced Optimization Settings -->
+                            <!-- Advanced Numerical Settings (Collapsible) -->
                             <div class="advanced-section">
                                 <button type="button" class="advanced-toggle" id="advanced-toggle" onclick="window.toggleAdvanced && window.toggleAdvanced();" aria-expanded="false">
-                                    <span>Advanced Solver Settings</span>
+                                    <span>Numerical Solver Parameters</span>
                                     <span class="toggle-icon" id="toggle-icon">▼</span>
                                 </button>
                                 <div class="advanced-content hidden" id="advanced-content">
-                                    <fieldset class="form-section">
-                                        <legend>L-BFGS-B &amp; Fourier Settings</legend>
+                                    <fieldset class="form-section sub-section">
                                         <div class="input-grid">
                                             <div class="form-group">
                                                 <label for="max_iter">Max Iterations</label>
@@ -164,87 +127,56 @@
                                                 <input type="number" id="num_terms" name="num_terms" value="50" min="5" max="100" required>
                                             </div>
                                             <div class="form-group">
-                                                <label for="loss_weight_const">Loss Weight Const</label>
+                                                <label for="loss_weight_const">Weight Constant</label>
                                                 <input type="number" id="loss_weight_const" name="loss_weight_const" step="0.1" value="1.0" required>
                                             </div>
                                             <div class="form-group">
-                                                <label for="tol_ftol">Function Tolerance</label>
+                                                <label for="tol_ftol">Function Tol (ftol)</label>
                                                 <input type="number" id="tol_ftol" name="tol_ftol" step="1e-9" value="1e-8" required>
                                             </div>
                                             <div class="form-group">
-                                                <label for="tol_gtol">Gradient Tolerance</label>
+                                                <label for="tol_gtol">Gradient Tol (gtol)</label>
                                                 <input type="number" id="tol_gtol" name="tol_gtol" step="1e-8" value="1e-7" required>
-                                            </div>
-                                        </div>
-                                    </fieldset>
-
-                                    <!-- Python Backend Server Configuration -->
-                                    <fieldset class="form-section">
-                                        <legend>Backend Server Endpoint</legend>
-                                        <div class="form-group">
-                                            <label for="backend-url-input">Server API / WebSocket URL</label>
-                                            <div class="input-action-row">
-                                                <input type="text" id="backend-url-input" placeholder="Auto-detected origin or Hugging Face Space URL" style="flex: 1; padding: 8px 12px; border: 1px solid var(--color-border); border-radius: 6px; font-family: monospace; font-size: 0.85rem;">
-                                                <button type="button" id="backend-save-btn" onclick="window.saveBackendUrl && window.saveBackendUrl();" class="btn-secondary" style="padding: 8px 16px;">Connect</button>
-                                            </div>
-                                            <div class="preset-links-row" style="margin-top: 6px; display: flex; gap: 8px; font-size: 0.8rem;">
-                                                <button type="button" class="btn-text-link" id="preset-origin-btn" onclick="window.setBackendPreset && window.setBackendPreset('origin');">⚡ Use Current Host</button>
-                                                <span>&bull;</span>
-                                                <button type="button" class="btn-text-link" id="preset-hf-btn" onclick="window.setBackendPreset && window.setBackendPreset('hf');">☁️ Use HF Cloud Space</button>
-                                                <span>&bull;</span>
-                                                <button type="button" class="btn-text-link" id="preset-local-btn" onclick="window.setBackendPreset && window.setBackendPreset('local');">💻 Use Localhost</button>
                                             </div>
                                         </div>
                                     </fieldset>
                                 </div>
                             </div>
 
-                            <!-- Compute Engine Indicator -->
-                            <fieldset class="form-section backend-section">
-                                <legend>Solver Architecture</legend>
-                                <div class="form-group">
-                                    <div class="engine-badge-row">
-                                        <span class="badge-tag-online">⚡ 100% Free Python JAX Engine (ZeroGPU &bull; NVIDIA A100)</span>
-                                    </div>
-                                    <div class="engine-help-row" style="margin-top: 8px;">
-                                        <span class="engine-status-msg" id="engine-status-msg">Probing Python solver engine...</span>
-                                        <button type="button" class="btn-text-link" id="backend-help-link" onclick="window.toggleModal && window.toggleModal('backend-modal', true);">Deployment &amp; Setup Guide</button>
-                                    </div>
-                                </div>
-                            </fieldset>
-
                             <button type="submit" id="submit-btn" class="btn-primary">Execute Optimization</button>
                         </form>
                     </div>
                 </section>
-            </div>
+            </aside>
 
-            <!-- Right Column: Visualizations & Results -->
-            <div class="visuals-column">
-                <!-- Status Panel with Live Plot -->
-                <section class="panel status-panel" id="status-panel">
-                    <div class="panel-header status-header" id="status-header">
-                        <div class="spinner hidden" id="status-spinner"></div>
-                        <div class="status-info">
-                            <h2 id="status-stage">System Ready</h2>
-                            <p id="status-details">Choose your CV file (.csv) on the left to preview data and execute optimization.</p>
+            <!-- Right Main Area: Primary Visualizations & Extracted Model Results -->
+            <section class="visuals-column">
+                <!-- Status & Primary Cyclic Voltammogram Card -->
+                <div class="panel main-chart-panel">
+                    <header class="panel-header status-header-row">
+                        <div class="status-left">
+                            <div class="spinner hidden" id="status-spinner"></div>
+                            <div>
+                                <h2 id="status-stage">Experimental Data Visualization</h2>
+                                <p id="status-details">Load a CSV data file to preview the cyclic voltammogram and begin parameter extraction.</p>
+                            </div>
                         </div>
-                    </div>
-                    <div class="panel-body">
-                        <div class="chart-wrapper">
+                    </header>
+                    <div class="panel-body chart-panel-body">
+                        <div class="chart-wrapper-large">
                             <div id="live-chart"></div>
                         </div>
                     </div>
-                </section>
+                </div>
 
-                <!-- Extracted Parameters & Results Panel -->
+                <!-- Extracted Model Parameters (Appears upon convergence) -->
                 <div class="results-panel hidden" id="results-panel">
-                    <section class="panel">
+                    <div class="panel">
                         <header class="panel-header results-header-row">
                             <h2>Extracted Physical Parameters</h2>
                             <div class="export-actions">
-                                <button type="button" class="btn-export" id="export-json-btn" onclick="window.exportResultsJson && window.exportResultsJson();">Export JSON</button>
-                                <button type="button" class="btn-export" id="export-csv-btn" onclick="window.exportResultsCsv && window.exportResultsCsv();">Export Curves CSV</button>
+                                <button type="button" class="btn-export" id="export-json-btn" onclick="window.exportResultsJson && window.exportResultsJson();">Export Parameters (JSON)</button>
+                                <button type="button" class="btn-export" id="export-csv-btn" onclick="window.exportResultsCsv && window.exportResultsCsv();">Export Fitted Curves (CSV)</button>
                             </div>
                         </header>
                         <div class="panel-body">
@@ -252,55 +184,59 @@
                                 <!-- Populated dynamically by JS -->
                             </div>
                         </div>
-                    </section>
+                    </div>
 
-                    <!-- Secondary Diagnostics (DOS & Diffusivity) -->
+                    <!-- Secondary Diagnostic Charts: DOS(V) and D(V) -->
                     <div class="secondary-charts-grid">
-                        <section class="panel">
+                        <div class="panel">
                             <header class="panel-header">
                                 <h3>Density of States DOS(V)</h3>
                             </header>
-                            <div class="panel-body chart-wrapper-small">
-                                <div id="dos-chart"></div>
+                            <div class="panel-body chart-panel-body">
+                                <div class="chart-wrapper-diagnostic">
+                                    <div id="dos-chart"></div>
+                                </div>
                             </div>
-                        </section>
-                        <section class="panel">
+                        </div>
+                        <div class="panel">
                             <header class="panel-header">
                                 <h3>Diffusivity Profile D(V)</h3>
                             </header>
-                            <div class="panel-body chart-wrapper-small">
-                                <div id="diffusivity-chart"></div>
+                            <div class="panel-body chart-panel-body">
+                                <div class="chart-wrapper-diagnostic">
+                                    <div id="diffusivity-chart"></div>
+                                </div>
                             </div>
-                        </section>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </section>
         </div>
     </main>
-    
-    <!-- Documentation Modal -->
-    <div class="modal-backdrop hidden" id="doc-modal" role="dialog" aria-modal="true" aria-labelledby="doc-title">
+
+    <!-- Physical Model & Theory Documentation Modal -->
+    <div class="modal-backdrop hidden" id="theory-modal" role="dialog" aria-modal="true" aria-labelledby="theory-title">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 id="doc-title">Physical Model &amp; Theory Documentation</h2>
-                <button type="button" class="modal-close" id="doc-close-btn" onclick="window.toggleModal && window.toggleModal('doc-modal', false);" aria-label="Close modal">&times;</button>
+                <h2 id="theory-title">Physical Model &amp; Theory Documentation</h2>
+                <button type="button" class="modal-close" id="theory-close-btn" onclick="window.toggleModal && window.toggleModal('theory-modal', false);" aria-label="Close modal">&times;</button>
             </div>
             <div class="modal-body">
                 <section class="doc-section">
                     <h3>1. Governing Diffusion Dynamics</h3>
-                    <p>The solver models 1D ion transport within a thin-film electrode of thickness \(L\) subjected to cyclic potential sweeps \(V(t)\). The concentration distribution \(C(x,t)\) satisfies Fick's Second Law with potential-dependent diffusivity \(D(V)\):</p>
+                    <p>The solver models 1D ion transport within a thin-film electrode of thickness <i>L</i> subjected to cyclic potential sweeps <i>V(t)</i>. The concentration distribution <i>C(x,t)</i> satisfies Fick's Second Law with potential-dependent diffusivity <i>D(V)</i>:</p>
                     <div class="math-box">
                         $$\frac{\partial C(x,t)}{\partial t} = D(V(t)) \frac{\partial^2 C(x,t)}{\partial x^2}$$
                     </div>
-                    <p>Boundary conditions represent a blocking substrate at \(x = 0\) and equilibrium ion insertion at the electrolyte interface \(x = L\):</p>
+                    <p>Boundary conditions represent a blocking substrate at <i>x = 0</i> and equilibrium ion insertion at the electrolyte interface <i>x = L</i>:</p>
                     <div class="math-box">
                         $$\left.\frac{\partial C}{\partial x}\right|_{x=0} = 0, \quad C(L,t) = \theta_{eq}(V(t))$$
                     </div>
                 </section>
 
                 <section class="doc-section">
-                    <h3>2. Potential-Dependent Diffusivity \(D(V)\)</h3>
-                    <p>Diffusivity is asymmetric across the central thermodynamic threshold \(V_c\), modeled as:</p>
+                    <h3>2. Potential-Dependent Diffusivity D(V)</h3>
+                    <p>Diffusivity is asymmetric across the central thermodynamic threshold <i>V<sub>c</sub></i>, modeled as:</p>
                     <div class="math-box">
                         $$D(V) = D_0 \exp\left(\beta(V) \cdot (V - V_c)^2\right), \quad \beta(V) = \begin{cases} \beta_L, & V < V_c \\ \beta_R, & V \ge V_c \end{cases}$$
                     </div>
@@ -308,11 +244,11 @@
 
                 <section class="doc-section">
                     <h3>3. Density of States (DOS) Representation</h3>
-                    <p>The equilibrium state function \(\theta_{eq}(V)\) is synthesized from a superposition of \(N\) Fermi-Dirac / error-function sub-bands:</p>
+                    <p>The equilibrium state function <i>&theta;<sub>eq</sub>(V)</i> is synthesized from a superposition of <i>N</i> Fermi-Dirac / error-function sub-bands:</p>
                     <div class="math-box">
                         $$\theta_{eq}(V) = \sum_{i=1}^{N} \frac{w_i}{1 + \exp(-k_i(V - V_{c,i}))}$$
                     </div>
-                    <p>The total Density of States \(DOS(V) = \frac{d\theta_{eq}}{dV}\) is the sum over individual Gaussian sub-band distributions:</p>
+                    <p>The total Density of States <i>DOS(V)</i> is the derivative with respect to potential:</p>
                     <div class="math-box">
                         $$DOS(V) = \sum_{i=1}^{N} w_i k_i \frac{\exp(-k_i(V - V_{c,i}))}{\left(1 + \exp(-k_i(V - V_{c,i}))\right)^2}$$
                     </div>
@@ -321,59 +257,18 @@
                 <section class="doc-section">
                     <h3>4. Multi-Stage L-BFGS-B Optimization Strategy</h3>
                     <ul>
-                        <li><strong>Stage 1 (Pure Flat Baseline)</strong>: Fits the DC baseline current offset while masking high-curvature potential zones.</li>
-                        <li><strong>Stage 1.5 (Background Tails)</strong>: Fits non-faradaic exponential charging tails (\(a_L, k_L, a_R, k_R\)).</li>
-                        <li><strong>Stage 2 (Anchor Peaks)</strong>: Fixes diffusion coefficients and optimizes peak placements (\(w_i, V_{c,i}, k_i\)).</li>
+                        <li><strong>Stage 1 (Pure Flat Baseline)</strong>: Fits the DC baseline current offset while masking high-curvature zones.</li>
+                        <li><strong>Stage 1.5 (Background Tails)</strong>: Fits non-faradaic exponential charging tails (<i>a<sub>L</sub>, k<sub>L</sub>, a<sub>R</sub>, k<sub>R</sub></i>).</li>
+                        <li><strong>Stage 2 (Anchor Peaks)</strong>: Fixes diffusion coefficients and optimizes peak placements (<i>w<sub>i</sub>, V<sub>c,i</sub>, k<sub>i</sub></i>).</li>
                         <li><strong>Stage 3 (Full Non-Linear Polish)</strong>: Unfreezes all parameters simultaneously for global refinement.</li>
                     </ul>
                 </section>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn-primary modal-ok-btn" id="doc-ok-btn" onclick="window.toggleModal && window.toggleModal('doc-modal', false);">Close Documentation</button>
+                <button type="button" class="btn-primary modal-ok-btn" onclick="window.toggleModal && window.toggleModal('theory-modal', false);">Close</button>
             </div>
         </div>
     </div>
-
-    <!-- Backend Setup & Cloud Deployment Guide Modal -->
-    <div class="modal-backdrop hidden" id="backend-modal" role="dialog" aria-modal="true" aria-labelledby="backend-modal-title">
-        <div class="modal-card">
-            <div class="modal-header">
-                <h2 id="backend-modal-title">⚡ 100% Free Python JAX ZeroGPU Guide</h2>
-                <button type="button" class="modal-close-btn" id="backend-close-btn" onclick="window.toggleModal && window.toggleModal('backend-modal', false);" aria-label="Close modal">&times;</button>
-            </div>
-            <div class="modal-body">
-                <section class="doc-section">
-                    <h3>Free Hugging Face Spaces Cloud Deployment (ZeroGPU - $0/month)</h3>
-                    <p>To let any user run the JAX solver from their browser with 100% free NVIDIA A100/H100 acceleration:</p>
-                    <ol style="margin-left: 1.25rem; font-size: 0.9rem; line-height: 1.6;">
-                        <li>Go to <a href="https://huggingface.co/new-space" target="_blank" style="color: var(--color-accent); text-decoration: underline;"><strong>huggingface.co/new-space</strong></a>.</li>
-                        <li>Name your Space (e.g. <code>cv-curve-fitting</code>) and choose <strong>Space SDK: Gradio</strong>.</li>
-                        <li>Choose <strong>Hardware: ZeroGPU (NVIDIA A100 &bull; 100% Free)</strong>.</li>
-                        <li>Push this repository to Hugging Face. Your web app will build and go live immediately!</li>
-                    </ol>
-                </section>
-
-                <section class="doc-section">
-                    <h3>Local Execution (Offline)</h3>
-                    <p>Run directly in your local terminal:</p>
-                    <div class="code-snippet-box">
-                        <code>python app.py</code>
-                    </div>
-                    <p>Then open <strong>http://127.0.0.1:7860</strong> in your browser.</p>
-                </section>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn-primary modal-ok-btn" id="backend-ok-btn" onclick="window.toggleModal && window.toggleModal('backend-modal', false);">Got It</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Footer -->
-    <footer class="site-footer">
-        <div class="footer-container">
-            <p>&copy; 2026 CV Curve Fitting Pro &bull; Physics-Based Electrochemical Optimizer &bull; 100% Free ZeroGPU Engine</p>
-        </div>
-    </footer>
 
     <!-- Bootstrap Trigger to ensure JS runs regardless of iframe or innerHTML injection -->
     <img src="data:image/svg+xml;utf8,<svg/>" style="display:none" onload="window.__initCVApp && window.__initCVApp();" onerror="window.__initCVApp && window.__initCVApp();" />

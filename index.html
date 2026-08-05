@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cyclic Voltammetry Parameter Extraction &amp; Physical Model Fitting</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" charset="utf-8"></script>
 </head>
 <body>
@@ -21,7 +21,6 @@
                     <span class="status-dot online" id="engine-dot"></span>
                     <span class="engine-text" id="engine-label">JAX Optimization Engine Ready</span>
                 </div>
-                <button type="button" class="nav-btn-link" id="nav-theory-btn" onclick="window.toggleModal && window.toggleModal('theory-modal', true);">Theory &amp; Equations</button>
             </div>
         </div>
     </nav>
@@ -38,127 +37,142 @@
                     <div class="panel-body">
                         <form id="cv-form" onsubmit="window.handleFormSubmit && window.handleFormSubmit(event);">
                             <!-- File Upload Area -->
-                            <div class="form-group file-upload-wrapper" id="drop-zone" onclick="document.getElementById('csv-file') && document.getElementById('csv-file').click();" ondragover="event.preventDefault(); event.stopPropagation(); this.classList.add('dragover');" ondragleave="event.preventDefault(); event.stopPropagation(); this.classList.remove('dragover');" ondrop="event.preventDefault(); event.stopPropagation(); this.classList.remove('dragover'); window.handleCSVDrop && window.handleCSVDrop(event);">
+                            <div class="file-upload-wrapper" id="drop-zone"
+                                 ondragover="event.preventDefault(); this.classList.add('dragover');"
+                                 ondragleave="this.classList.remove('dragover');"
+                                 ondrop="event.preventDefault(); this.classList.remove('dragover'); window.handleCSVDrop && window.handleCSVDrop(event);">
                                 <label class="section-label">Voltammetry Data File (.csv)</label>
-                                <div class="file-upload-box">
-                                    <span class="file-icon">📄</span>
-                                    <span class="btn-file-select" id="choose-file-btn">Choose CSV Data</span>
+                                <div class="file-upload-box" onclick="document.getElementById('csv-file-input').click();">
+                                    <div class="file-icon">📄</div>
+                                    <span class="btn-file-select">Choose CSV Data</span>
                                     <span class="drag-hint">or drop file here</span>
                                 </div>
                                 <div class="file-status-row">
                                     <span id="file-name-display">No file selected</span>
                                 </div>
-                                <input type="file" id="csv-file" name="file" accept=".csv,.txt,.dat" class="hidden-file-input" onchange="window.handleCSVFileChange && window.handleCSVFileChange(this);" onclick="event.stopPropagation();">
+                                <input type="file" id="csv-file-input" class="hidden-file-input" accept=".csv,.txt,.dat" onchange="window.handleCSVFileChange && window.handleCSVFileChange(this);" />
                             </div>
 
-                            <!-- Generalized 2-Column Data Mapping -->
+                            <!-- Generalized 2-Column Selectors -->
                             <fieldset class="form-section">
                                 <legend>Data Columns</legend>
                                 <div class="input-grid">
                                     <div class="form-group">
-                                        <label for="pot_col">Potential (V) Column</label>
-                                        <select id="pot_col" name="pot_col" class="academic-dropdown" onchange="window.updateLivePreviewFromColumns && window.updateLivePreviewFromColumns();" required>
-                                            <option value="0">Column 0: Potential (V)</option>
+                                        <label for="pot_col">Potential (<i>V</i>) Column</label>
+                                        <select id="pot_col" name="pot_col" class="academic-dropdown" onchange="window.updateLivePreviewFromColumns && window.updateLivePreviewFromColumns();">
+                                            <option value="0">Column 0</option>
                                         </select>
                                     </div>
                                     <div class="form-group">
-                                        <label for="cur_col">Current (A) Column</label>
-                                        <select id="cur_col" name="cur_col" class="academic-dropdown" onchange="window.updateLivePreviewFromColumns && window.updateLivePreviewFromColumns();" required>
-                                            <option value="1">Column 1: Current (A)</option>
+                                        <label for="cur_col">Current (<i>I</i>) Column</label>
+                                        <select id="cur_col" name="cur_col" class="academic-dropdown" onchange="window.updateLivePreviewFromColumns && window.updateLivePreviewFromColumns();">
+                                            <option value="1">Column 1</option>
                                         </select>
                                     </div>
                                 </div>
                                 <div class="column-meta-bar" id="column-meta-bar">
-                                    <span id="detected-columns-text">Select or drop a CSV file to inspect columns</span>
+                                    <span id="detected-columns-text">Upload a file to map columns</span>
                                 </div>
+
+                                <!-- Live Data Stats Preview -->
                                 <div class="col-stats-preview" id="col-stats-preview">
-                                    <div class="stat-pill"><span class="stat-k">V Range:</span> <span class="stat-v" id="stat-v-range">-</span></div>
-                                    <div class="stat-pill"><span class="stat-k">I Range:</span> <span class="stat-v" id="stat-i-range">-</span></div>
-                                    <div class="stat-pill"><span class="stat-k">Data Points:</span> <span class="stat-v" id="stat-points-count">0</span></div>
+                                    <div class="stat-pill">
+                                        <span class="stat-k">V Range:</span>
+                                        <span class="stat-v" id="stat-v-range">-</span>
+                                    </div>
+                                    <div class="stat-pill">
+                                        <span class="stat-k">I Range:</span>
+                                        <span class="stat-v" id="stat-i-range">-</span>
+                                    </div>
+                                    <div class="stat-pill">
+                                        <span class="stat-k">Data Points:</span>
+                                        <span class="stat-v" id="stat-points-count">-</span>
+                                    </div>
                                 </div>
                             </fieldset>
 
-                            <!-- Physical Parameters -->
+                            <!-- Physical & Experimental Parameters -->
                             <fieldset class="form-section">
                                 <legend>Physical &amp; Electrochemical Parameters</legend>
                                 <div class="input-grid">
                                     <div class="form-group">
-                                        <label for="scan_rate">Scan Rate <i>&nu;</i> (V/s)</label>
-                                        <input type="number" id="scan_rate" name="scan_rate" step="0.001" value="0.010" required>
+                                        <label for="scan_rate">Scan Rate <i>v</i> (V/s)</label>
+                                        <input type="number" step="any" id="scan_rate" name="scan_rate" value="0.010" required />
                                     </div>
                                     <div class="form-group">
                                         <label for="film_thickness">Film Thickness <i>L</i> (cm)</label>
-                                        <input type="number" id="film_thickness" name="film_thickness" step="1e-6" value="0.0001" required>
+                                        <input type="number" step="any" id="film_thickness" name="film_thickness" value="0.0001" required />
                                     </div>
+                                </div>
+                                <div class="input-grid" style="margin-top: 0.65rem;">
                                     <div class="form-group">
                                         <label for="v_min">Potential Range <i>V</i><sub>min</sub> (V)</label>
-                                        <input type="number" id="v_min" name="v_min" step="0.05" value="-1.0" required>
+                                        <input type="number" step="any" id="v_min" name="v_min" value="-1.0" required />
                                     </div>
                                     <div class="form-group">
                                         <label for="v_max">Potential Range <i>V</i><sub>max</sub> (V)</label>
-                                        <input type="number" id="v_max" name="v_max" step="0.05" value="1.0" required>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="skip_factor">Downsample Factor</label>
-                                        <input type="number" id="skip_factor" name="skip_factor" min="1" max="50" value="5" required>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="num_peaks">Gaussian Peak Count</label>
-                                        <input type="number" id="num_peaks" name="num_peaks" min="5" max="100" value="50" required>
+                                        <input type="number" step="any" id="v_max" name="v_max" value="1.0" required />
                                     </div>
                                 </div>
                             </fieldset>
-                            
-                            <!-- Advanced Numerical Settings (Collapsible) -->
+
+                            <!-- Advanced Computational Hyperparameters (Collapsible) -->
                             <div class="advanced-section">
                                 <button type="button" class="advanced-toggle" id="advanced-toggle" onclick="window.toggleAdvanced && window.toggleAdvanced();" aria-expanded="false">
-                                    <span>Numerical Solver Parameters</span>
+                                    <span>Solver Hyperparameters &amp; JAX Grid</span>
                                     <span class="toggle-icon" id="toggle-icon">▼</span>
                                 </button>
                                 <div class="advanced-content hidden" id="advanced-content">
                                     <fieldset class="form-section sub-section">
                                         <div class="input-grid">
                                             <div class="form-group">
-                                                <label for="max_iter">Max Iterations</label>
-                                                <input type="number" id="max_iter" name="max_iter" value="100" min="10" max="500" required>
+                                                <label for="num_peaks">DOS Sub-Bands (<i>N</i>)</label>
+                                                <input type="number" id="num_peaks" name="num_peaks" value="50" min="5" max="200" />
                                             </div>
                                             <div class="form-group">
-                                                <label for="num_terms">Fourier Modes</label>
-                                                <input type="number" id="num_terms" name="num_terms" value="50" min="5" max="100" required>
+                                                <label for="num_terms">Fourier PDE Terms</label>
+                                                <input type="number" id="num_terms" name="num_terms" value="50" min="10" max="200" />
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="skip_factor">Downsample Factor</label>
+                                                <input type="number" id="skip_factor" name="skip_factor" value="5" min="1" max="50" />
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="max_iter">L-BFGS-B Iterations</label>
+                                                <input type="number" id="max_iter" name="max_iter" value="100" min="10" max="500" />
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="tol_ftol">Tolerance (<i>f_tol</i>)</label>
+                                                <input type="number" step="any" id="tol_ftol" name="tol_ftol" value="1e-8" />
                                             </div>
                                             <div class="form-group">
                                                 <label for="loss_weight_const">Weight Constant</label>
-                                                <input type="number" id="loss_weight_const" name="loss_weight_const" step="0.1" value="1.0" required>
-                                            </div>
-                                            <div class="form-group">
-                                                <label for="tol_ftol">Function Tol (ftol)</label>
-                                                <input type="number" id="tol_ftol" name="tol_ftol" step="1e-9" value="1e-8" required>
-                                            </div>
-                                            <div class="form-group">
-                                                <label for="tol_gtol">Gradient Tol (gtol)</label>
-                                                <input type="number" id="tol_gtol" name="tol_gtol" step="1e-8" value="1e-7" required>
+                                                <input type="number" step="any" id="loss_weight_const" name="loss_weight_const" value="1.0" />
                                             </div>
                                         </div>
                                     </fieldset>
                                 </div>
                             </div>
 
-                            <button type="submit" id="submit-btn" class="btn-primary">Execute Optimization</button>
+                            <!-- Execution Button -->
+                            <button type="submit" id="submit-btn" class="btn-primary">
+                                Execute Optimization
+                            </button>
                         </form>
                     </div>
                 </section>
             </aside>
 
-            <!-- Right Main Area: Primary Visualizations & Extracted Model Results -->
-            <section class="visuals-column">
-                <!-- Status & Primary Cyclic Voltammogram Card -->
+            <!-- Right Main Area: Primary Plots & Diagnostics -->
+            <section class="visualizations-column">
+                <!-- Status & Primary Voltammogram Canvas -->
                 <div class="panel main-chart-panel">
                     <header class="panel-header status-header-row">
                         <div class="status-left">
                             <div class="spinner hidden" id="status-spinner"></div>
                             <div>
-                                <h2 id="status-stage">Experimental Data Visualization</h2>
-                                <p id="status-details">Load a CSV data file to preview the cyclic voltammogram and begin parameter extraction.</p>
+                                <h2 id="status-stage">System Ready</h2>
+                                <p id="status-details">Upload experimental voltammogram CSV data to begin parameter extraction.</p>
                             </div>
                         </div>
                     </header>
@@ -169,24 +183,27 @@
                     </div>
                 </div>
 
-                <!-- Extracted Model Parameters (Appears upon convergence) -->
-                <div class="results-panel hidden" id="results-panel">
+                <!-- Extracted Parameters & Derived Spectra -->
+                <div id="results-panel" class="results-container hidden">
+                    <!-- Physical Constants & Optimization Summary -->
                     <div class="panel">
                         <header class="panel-header results-header-row">
-                            <h2>Extracted Physical Parameters</h2>
+                            <h3>Extracted Physical Parameters</h3>
                             <div class="export-actions">
-                                <button type="button" class="btn-export" id="export-json-btn" onclick="window.exportResultsJson && window.exportResultsJson();">Export Parameters (JSON)</button>
-                                <button type="button" class="btn-export" id="export-csv-btn" onclick="window.exportResultsCsv && window.exportResultsCsv();">Export Fitted Curves (CSV)</button>
+                                <button type="button" class="btn-export" onclick="window.exportResultsJson && window.exportResultsJson();">
+                                    Export JSON
+                                </button>
+                                <button type="button" class="btn-export" onclick="window.exportResultsCsv && window.exportResultsCsv();">
+                                    Export CSV Curves
+                                </button>
                             </div>
                         </header>
                         <div class="panel-body">
-                            <div class="stats-grid" id="params-output">
-                                <!-- Populated dynamically by JS -->
-                            </div>
+                            <div class="stats-grid" id="params-output"></div>
                         </div>
                     </div>
 
-                    <!-- Secondary Diagnostic Charts: DOS(V) and D(V) -->
+                    <!-- Secondary Physical Diagnostics: DOS(V) & D(V) -->
                     <div class="secondary-charts-grid">
                         <div class="panel">
                             <header class="panel-header">
@@ -213,62 +230,6 @@
             </section>
         </div>
     </main>
-
-    <!-- Physical Model & Theory Documentation Modal -->
-    <div class="modal-backdrop hidden" id="theory-modal" role="dialog" aria-modal="true" aria-labelledby="theory-title">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="theory-title">Physical Model &amp; Theory Documentation</h2>
-                <button type="button" class="modal-close" id="theory-close-btn" onclick="window.toggleModal && window.toggleModal('theory-modal', false);" aria-label="Close modal">&times;</button>
-            </div>
-            <div class="modal-body">
-                <section class="doc-section">
-                    <h3>1. Governing Diffusion Dynamics</h3>
-                    <p>The solver models 1D ion transport within a thin-film electrode of thickness <i>L</i> subjected to cyclic potential sweeps <i>V(t)</i>. The concentration distribution <i>C(x,t)</i> satisfies Fick's Second Law with potential-dependent diffusivity <i>D(V)</i>:</p>
-                    <div class="math-box">
-                        $$\frac{\partial C(x,t)}{\partial t} = D(V(t)) \frac{\partial^2 C(x,t)}{\partial x^2}$$
-                    </div>
-                    <p>Boundary conditions represent a blocking substrate at <i>x = 0</i> and equilibrium ion insertion at the electrolyte interface <i>x = L</i>:</p>
-                    <div class="math-box">
-                        $$\left.\frac{\partial C}{\partial x}\right|_{x=0} = 0, \quad C(L,t) = \theta_{eq}(V(t))$$
-                    </div>
-                </section>
-
-                <section class="doc-section">
-                    <h3>2. Potential-Dependent Diffusivity D(V)</h3>
-                    <p>Diffusivity is asymmetric across the central thermodynamic threshold <i>V<sub>c</sub></i>, modeled as:</p>
-                    <div class="math-box">
-                        $$D(V) = D_0 \exp\left(\beta(V) \cdot (V - V_c)^2\right), \quad \beta(V) = \begin{cases} \beta_L, & V < V_c \\ \beta_R, & V \ge V_c \end{cases}$$
-                    </div>
-                </section>
-
-                <section class="doc-section">
-                    <h3>3. Density of States (DOS) Representation</h3>
-                    <p>The equilibrium state function <i>&theta;<sub>eq</sub>(V)</i> is synthesized from a superposition of <i>N</i> Fermi-Dirac / error-function sub-bands:</p>
-                    <div class="math-box">
-                        $$\theta_{eq}(V) = \sum_{i=1}^{N} \frac{w_i}{1 + \exp(-k_i(V - V_{c,i}))}$$
-                    </div>
-                    <p>The total Density of States <i>DOS(V)</i> is the derivative with respect to potential:</p>
-                    <div class="math-box">
-                        $$DOS(V) = \sum_{i=1}^{N} w_i k_i \frac{\exp(-k_i(V - V_{c,i}))}{\left(1 + \exp(-k_i(V - V_{c,i}))\right)^2}$$
-                    </div>
-                </section>
-
-                <section class="doc-section">
-                    <h3>4. Multi-Stage L-BFGS-B Optimization Strategy</h3>
-                    <ul>
-                        <li><strong>Stage 1 (Pure Flat Baseline)</strong>: Fits the DC baseline current offset while masking high-curvature zones.</li>
-                        <li><strong>Stage 1.5 (Background Tails)</strong>: Fits non-faradaic exponential charging tails (<i>a<sub>L</sub>, k<sub>L</sub>, a<sub>R</sub>, k<sub>R</sub></i>).</li>
-                        <li><strong>Stage 2 (Anchor Peaks)</strong>: Fixes diffusion coefficients and optimizes peak placements (<i>w<sub>i</sub>, V<sub>c,i</sub>, k<sub>i</sub></i>).</li>
-                        <li><strong>Stage 3 (Full Non-Linear Polish)</strong>: Unfreezes all parameters simultaneously for global refinement.</li>
-                    </ul>
-                </section>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn-primary modal-ok-btn" onclick="window.toggleModal && window.toggleModal('theory-modal', false);">Close</button>
-            </div>
-        </div>
-    </div>
 
     <!-- Bootstrap Trigger to ensure JS runs regardless of iframe or innerHTML injection -->
     <img src="data:image/svg+xml;utf8,<svg/>" style="display:none" onload="window.__initCVApp && window.__initCVApp();" onerror="window.__initCVApp && window.__initCVApp();" />

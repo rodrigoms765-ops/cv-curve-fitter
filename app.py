@@ -3,15 +3,30 @@ import sys
 from pathlib import Path
 import uvicorn
 
-# Add project root and backend folder to Python path
+# Add current directory and backend directory to sys.path
 ROOT_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = ROOT_DIR / "backend"
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-if str(BACKEND_DIR) not in sys.path:
-    sys.path.insert(0, str(BACKEND_DIR))
+for d in [str(ROOT_DIR), str(BACKEND_DIR)]:
+    if d not in sys.path:
+        sys.path.insert(0, d)
 
-from backend.main import app, handle_solver_websocket, health_check
+# Hugging Face ZeroGPU Static Scanner: explicit @spaces.GPU decorator in app.py
+try:
+    import spaces
+    @spaces.GPU(duration=120)
+    def zerogpu_probe():
+        return True
+except Exception:
+    pass
+
+# Fail-safe Import: Supports both subfolder and flat directory uploads
+try:
+    from backend.main import app, handle_solver_websocket, health_check
+except ImportError:
+    try:
+        from main import app, handle_solver_websocket, health_check
+    except ImportError as e:
+        raise ImportError(f"Failed to load backend/main.py or main.py: {e}")
 
 # Optionally mount Gradio documentation interface if gradio is available (Hugging Face Spaces)
 try:

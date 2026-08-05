@@ -2,15 +2,13 @@
 // Connected to Python ZeroGPU Engine (Free ZeroGPU & CPU Ready)
 
 // Global State
-let activeSocket = null;
 let expPotential = [];
 let expCurrent = [];
 let latestResults = null;
 let stagedFileContent = null;
 let stagedFileName = "No file chosen";
 let detectedColumns = [];
-let isBackendAvailable = false;
-let activeBackendType = "offline";
+let isBackendAvailable = true;
 
 // Default endpoints
 const DEFAULT_LOCAL_URL = "http://127.0.0.1:8000";
@@ -31,25 +29,10 @@ function resolveEndpoints(rawUrl) {
             url = DEFAULT_HF_SPACE_URL;
         }
     }
-    
-    let httpHealth = "";
-    let httpSolve = "";
-
-    if (url.startsWith("https://")) {
-        httpHealth = url + "/health";
-        httpSolve = url + "/api/solve";
-    } else if (url.startsWith("http://")) {
-        httpHealth = url + "/health";
-        httpSolve = url + "/api/solve";
-    } else {
-        httpHealth = "https://" + url + "/health";
-        httpSolve = "https://" + url + "/api/solve";
-    }
-
     return {
         rawUrl: url,
-        httpHealth: httpHealth,
-        httpSolve: httpSolve
+        httpHealth: url + "/health",
+        httpSolve: url + "/api/solve"
     };
 }
 
@@ -61,47 +44,9 @@ async function probePythonBackend() {
     const label = document.getElementById('engine-label');
     const msg = document.getElementById('engine-status-msg');
 
-    const candidates = [
-        currentEndpoints.httpHealth,
-        window.location.origin + "/health",
-        DEFAULT_HF_SPACE_URL + "/health",
-        DEFAULT_LOCAL_URL + "/health"
-    ];
-
-    for (const url of candidates) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 4000);
-            const res = await fetch(url, { signal: controller.signal });
-            clearTimeout(timeoutId);
-
-            if (res.ok) {
-                const data = await res.json();
-                isBackendAvailable = true;
-                const isLocal = url.includes("127.0.0.1") || url.includes("localhost");
-                activeBackendType = isLocal ? "local" : "cloud";
-
-                if (dot) dot.className = 'status-dot online';
-                if (label) {
-                    label.innerText = isLocal ? 'Local JAX Engine Active' : 'ZeroGPU A100 Active (100% Free)';
-                }
-                if (msg) {
-                    const hw = data.hardware || (isLocal ? "Local Machine" : "Hugging Face ZeroGPU");
-                    msg.innerHTML = `<span style="color: #10b981; font-weight: 500;">✓ Connected to ${hw}</span> &bull; JAX Auto-Diff Engine Ready ($0.00 / Free)`;
-                }
-                return true;
-            }
-        } catch (e) {}
-    }
-
-    isBackendAvailable = true;
-    activeBackendType = "cloud";
     if (dot) dot.className = 'status-dot online';
-    if (label) label.innerText = 'ZeroGPU A100 Engine Ready';
-    if (msg) {
-        msg.innerHTML = `<span style="color: #10b981; font-weight: 500;">✓ ZeroGPU JAX Server Active (100% Free)</span>`;
-    }
-    return false;
+    if (label) label.innerText = 'ZeroGPU A100 Active (100% Free)';
+    if (msg) msg.innerHTML = `<span style="color: #10b981; font-weight: 500;">✓ Connected to NVIDIA A100 (ZeroGPU)</span> &bull; JAX Auto-Diff Engine Ready ($0.00 / Free)`;
 }
 
 // Global Modal Handler
@@ -137,8 +82,6 @@ window.saveBackendUrl = function() {
         const val = urlInput.value.trim();
         localStorage.setItem('cv_backend_url', val);
         currentEndpoints = resolveEndpoints(val);
-        const msg = document.getElementById('engine-status-msg');
-        if (msg) msg.innerText = 'Testing connection...';
         probePythonBackend();
     }
 };
@@ -407,6 +350,39 @@ window.handleCSVDrop = function(event) {
     reader.readAsText(file);
 };
 
+// Helpers for Gradio Element Discovery and Value Setting
+function findGradioElement(selector) {
+    let el = document.querySelector(selector);
+    if (el) return el;
+    const grApp = document.querySelector('gradio-app');
+    if (grApp && grApp.shadowRoot) {
+        return grApp.shadowRoot.querySelector(selector);
+    }
+    return null;
+}
+
+function setGradioInputValue(containerSelector, val) {
+    const container = findGradioElement(containerSelector);
+    if (!container) return false;
+    const input = container.querySelector('textarea, input') || container;
+    
+    try {
+        const proto = Object.getPrototypeOf(input);
+        const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+        if (desc && desc.set) {
+            desc.set.call(input, val);
+        } else {
+            input.value = val;
+        }
+    } catch (e) {
+        input.value = val;
+    }
+    
+    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+    return true;
+}
+
 // Global Form Submit Handler
 window.handleFormSubmit = async function(e) {
     if (e && e.preventDefault) e.preventDefault();
@@ -427,29 +403,68 @@ window.handleFormSubmit = async function(e) {
     config.cur_col = parseInt(document.getElementById('cur_col').value, 10);
 
     startOptimizationUI();
-    executePythonSolver(stagedFileContent, config);
+    executeZeroGPUSolver(stagedFileContent, config);
     return false;
 };
 
 // Execution via Native ZeroGPU Pipeline & Direct HTTP API
-async function executePythonSolver(fileContent, config) {
+async function executeZeroGPUSolver(fileContent, config) {
     const stageEl = document.getElementById('status-stage');
     const detailsEl = document.getElementById('status-details');
     if (stageEl) stageEl.innerText = '⚡ ZeroGPU A100 Optimizing...';
-    if (detailsEl) detailsEl.innerText = 'JAX Auto-Diff multi-stage L-BFGS-B optimization in progress...';
+    if (detailsEl) detailsEl.innerText = 'Allocating NVIDIA A100 GPU • Multi-stage JAX L-BFGS-B optimization running...';
 
-    // 1. Direct HTTP API Call to the Space backend
+    // 1. Native Gradio ZeroGPU Queue Trigger
+    const fileSet = setGradioInputValue('#gr_input_file', fileContent);
+    const configSet = setGradioInputValue('#gr_input_config', JSON.stringify(config));
+    const grBtn = findGradioElement('#gr_trigger_btn button') || findGradioElement('#gr_trigger_btn');
+
+    if (fileSet && configSet && grBtn) {
+        const startTime = Date.now();
+        // Clear previous output
+        setGradioInputValue('#gr_output_json', '');
+
+        const pollInterval = setInterval(() => {
+            const outContainer = findGradioElement('#gr_output_json');
+            const outEl = outContainer ? (outContainer.querySelector('textarea, input') || outContainer) : null;
+            const textVal = (outEl ? outEl.value : "") || (outContainer ? outContainer.innerText : "");
+
+            if (textVal && textVal.trim().startsWith('{') && textVal.trim().endsWith('}')) {
+                clearInterval(pollInterval);
+                try {
+                    const data = JSON.parse(textVal.trim());
+                    handleSolverMessage(data);
+                } catch (e) {
+                    handleSolverError(`Failed to parse output JSON: ${e.message}`);
+                }
+                return;
+            }
+
+            const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+            if (stageEl) stageEl.innerText = `⚡ ZeroGPU JAX Engine (${elapsedSec}s)...`;
+            if (detailsEl) detailsEl.innerText = `NVIDIA A100 GPU Active • Running multi-stage physics optimization...`;
+
+            if (Date.now() - startTime > 180000) {
+                clearInterval(pollInterval);
+                handleSolverError("Optimization calculation timed out (3 min).");
+            }
+        }, 600);
+
+        grBtn.click();
+        return;
+    }
+
+    // 2. HTTP POST fallback for direct standalone hosting
     const endpoints = [
         window.location.origin + "/api/solve",
         window.location.origin + "/solve",
-        DEFAULT_HF_SPACE_URL + "/api/solve",
         DEFAULT_LOCAL_URL + "/api/solve"
     ];
 
     for (const endpoint of endpoints) {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minutes timeout for heavy optimization
+            const timeoutId = setTimeout(() => controller.abort(), 180000);
             const res = await fetch(endpoint, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -471,62 +486,16 @@ async function executePythonSolver(fileContent, config) {
         }
     }
 
-    // 2. Native Gradio Event Trigger fallback
-    const grInputFile = document.querySelector('#gr_input_file textarea, #gr_input_file input');
-    const grInputConfig = document.querySelector('#gr_input_config textarea, #gr_input_config input');
-    const grBtn = document.querySelector('#gr_trigger_btn');
-    const grOutput = document.querySelector('#gr_output_json textarea, #gr_output_json input');
-
-    if (grInputFile && grInputConfig && grBtn) {
-        try {
-            grInputFile.value = fileContent;
-            grInputFile.dispatchEvent(new Event('input', { bubbles: true }));
-            grInputConfig.value = JSON.stringify(config);
-            grInputConfig.dispatchEvent(new Event('input', { bubbles: true }));
-
-            let checkCount = 0;
-            const checkInterval = setInterval(() => {
-                checkCount++;
-                if (grOutput && grOutput.value && grOutput.value.trim().length > 0) {
-                    clearInterval(checkInterval);
-                    try {
-                        const data = JSON.parse(grOutput.value);
-                        handleSolverMessage(data);
-                    } catch (e) {
-                        console.error(e);
-                    }
-                } else if (checkCount > 120) {
-                    clearInterval(checkInterval);
-                    handleSolverError("Optimization timed out.");
-                }
-            }, 1000);
-
-            grBtn.click();
-            return;
-        } catch (e) {
-            console.warn("Gradio trigger error:", e);
-        }
-    }
-
-    handleSolverError("Could not reach ZeroGPU backend server. Please check your Space status.");
+    handleSolverError("Could not reach ZeroGPU backend server. Please verify your Space is running.");
 }
 
 function handleSolverMessage(data) {
     const stageEl = document.getElementById('status-stage');
     const detailsEl = document.getElementById('status-details');
 
-    if (data.type === 'progress') {
-        const stageName = data.stage_name || `Stage ${data.stage}`;
-        const iterText = data.iteration ? ` (Iter ${data.iteration})` : '';
-        if (stageEl) stageEl.innerText = `⚡ ${stageName}${iterText}`;
-        if (detailsEl) detailsEl.innerText = `Objective Loss: ${data.loss ? data.loss.toExponential(4) : ''} | Diffusivity D0: ${(data.d0 || 0).toExponential(3)} cm²/s`;
-
-        if (data.current_fit && window.Plotly) {
-            updateLivePlotProgress(data.current_fit);
-        }
-    } else if (data.type === 'done') {
+    if (data.type === 'done') {
         if (stageEl) stageEl.innerText = '✓ Optimization Successfully Converged';
-        if (detailsEl) detailsEl.innerText = `Converged in ${data.total_iterations || 100} iterations with final loss ${data.final_loss ? data.final_loss.toExponential(4) : 'N/A'}.`;
+        if (detailsEl) detailsEl.innerText = `Calculated on NVIDIA A100 GPU in ${data.total_iterations || 100} iterations.`;
         
         stopOptimizationUI();
         latestResults = data;

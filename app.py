@@ -133,18 +133,19 @@ try:
     footer {{visibility: hidden !important; display: none !important;}}
     .gradio-container {{max-width: 100% !important; padding: 0 !important; margin: 0 !important; background: #0f172a !important;}}
     .prose {{max-width: 100% !important;}}
+    .hidden-bridge {{position: absolute !important; opacity: 0 !important; pointer-events: none !important; height: 0 !important; width: 0 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; border: none !important;}}
     </style>
     """
 
     with gr.Blocks(title="CV Curve Fitting Pro - JAX Engine", head=head_html, js=app_js) as demo:
+        # Native Gradio components for ZeroGPU hardware event dispatching
+        gr_input_file = gr.Textbox(value="", elem_id="gr_input_file", elem_classes=["hidden-bridge"])
+        gr_input_config = gr.Textbox(value="{}", elem_id="gr_input_config", elem_classes=["hidden-bridge"])
+        gr_output_json = gr.Textbox(value="", elem_id="gr_output_json", elem_classes=["hidden-bridge"])
+        gr_trigger_btn = gr.Button("Execute ZeroGPU", elem_id="gr_trigger_btn", elem_classes=["hidden-bridge"])
+
         gr.HTML(inlined_html)
-        
-        # Native Gradio event pipeline for ZeroGPU hardware provisioning
-        gr_input_file = gr.Textbox(value="", visible=False, elem_id="gr_input_file")
-        gr_input_config = gr.Textbox(value="{}", visible=False, elem_id="gr_input_config")
-        gr_output_json = gr.Textbox(value="", visible=False, elem_id="gr_output_json")
-        gr_trigger_btn = gr.Button("Execute ZeroGPU", visible=False, elem_id="gr_trigger_btn")
-        
+
         gr_trigger_btn.click(
             fn=gradio_solve_cv,
             inputs=[gr_input_file, gr_input_config],

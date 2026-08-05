@@ -50,8 +50,8 @@ demo.app.add_middleware(
 # Attach FastAPI API routes and WebSocket endpoints directly to demo.app
 demo.app.add_api_route("/health", health_check, methods=["GET"])
 demo.app.add_api_route("/api/health", health_check, methods=["GET"])
-demo.app.add_websocket_route("/ws/solve", handle_solver_websocket)
-demo.app.add_websocket_route("/ws", handle_solver_websocket)
+demo.app.add_api_websocket_route("/ws/solve", handle_solver_websocket)
+demo.app.add_api_websocket_route("/ws", handle_solver_websocket)
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7860)

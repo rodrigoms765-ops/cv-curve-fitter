@@ -11,9 +11,9 @@ if str(ROOT_DIR) not in sys.path:
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from backend.main import app as fastapi_app
+from backend.main import handle_solver_websocket, health_check
 
-# Create Gradio interface for Hugging Face Spaces
+# Create native Gradio interface
 with gr.Blocks(title="CV Curve Fitting Pro - JAX Engine") as demo:
     gr.Markdown("# ⚡ CV Curve Fitting Pro - JAX Engine")
     gr.Markdown("""
@@ -37,5 +37,11 @@ with gr.Blocks(title="CV Curve Fitting Pro - JAX Engine") as demo:
     </div>
     """)
 
-# Mount Gradio onto the FastAPI app (Hugging Face serves this directly)
-app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
+# Attach FastAPI API routes and WebSocket endpoints directly to demo.app
+demo.app.add_api_route("/health", health_check, methods=["GET"])
+demo.app.add_api_route("/api/health", health_check, methods=["GET"])
+demo.app.add_websocket_route("/ws/solve", handle_solver_websocket)
+demo.app.add_websocket_route("/ws", handle_solver_websocket)
+
+if __name__ == "__main__":
+    demo.launch(server_name="0.0.0.0", server_port=7860)

@@ -13,12 +13,12 @@ license: mit
 
 A high-performance, physics-based simulation and optimization web application to determine the potential-dependent **diffusion coefficient $D(V)$** and **electronic density of states $DOS(V)$** from Cyclic Voltammetry experimental data.
 
-**100% Free CPU Compatible**: Optimized for Hugging Face Spaces' Free 2 vCPU tier ($0.00 cost) using JAX automatic differentiation and JIT-compiled Fourier diffusion scan.
+**100% Free ZeroGPU & CPU Compatible**: Powered by Hugging Face ZeroGPU (NVIDIA A100 dynamic acceleration at $0.00 cost) and JAX automatic differentiation.
 
 ---
 
 ## 🌟 Features
-- **100% Free Cloud & Local Execution**: Runs smoothly on free CPU hardware without requiring paid GPUs.
+- **100% Free ZeroGPU Acceleration ($0.00 / month)**: Runs on Hugging Face ZeroGPU (NVIDIA A100/H100) or local CPU with zero setup fees.
 - **Physics-Based PDE Modeling**: Fast Fourier spectral decomposition of 1D ion transport and diffusion within thin-film electrodes.
 - **Hardware-Accelerated Auto-Diff**: JAX reverse-mode gradients enable rapid multi-stage L-BFGS-B parameter convergence in seconds.
 - **Interactive Visualizations (Plotly)**:
@@ -43,21 +43,21 @@ pip install -r requirements.txt
 ```bash
 python app.py
 ```
-Open **[http://127.0.0.1:7860](http://127.0.0.1:7860)** or **[http://127.0.0.1:8000](http://127.0.0.1:8000)** in your browser.
+Open **[http://127.0.0.1:7860](http://127.0.0.1:7860)** in your browser.
 
 ---
 
-## ☁️ Hugging Face Spaces Free Deployment
+## ☁️ Hugging Face Spaces Free Deployment (ZeroGPU)
 
 1. Create a new Space on [Hugging Face Spaces](https://huggingface.co/new-space).
-2. Choose **Space SDK**: `Gradio` or `Docker`.
-3. Choose **Hardware**: **CPU basic &bull; 2 vCPU &bull; 16 GB &bull; Free ($0/mo)**.
+2. Choose **Space SDK**: **Gradio**.
+3. Choose **Hardware**: **ZeroGPU (NVIDIA A100 &bull; 100% Free)**.
 4. Clone your Space repository and push these files:
 ```bash
 git remote add hf https://huggingface.co/spaces/<YOUR_USERNAME>/<YOUR_SPACE_NAME>
 git push hf main
 ```
-5. Your web app will automatically build and go live at `https://huggingface.co/spaces/<YOUR_USERNAME>/<YOUR_SPACE_NAME>`!
+5. Your web app will automatically build and go live with free NVIDIA A100 acceleration!
 
 ---
 

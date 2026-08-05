@@ -14,7 +14,7 @@ let activeBackendType = "offline"; // "cloud", "local", "offline"
 
 // Default endpoints
 const DEFAULT_LOCAL_URL = "http://127.0.0.1:8000";
-const DEFAULT_HF_SPACE_URL = "https://rodrigo1421-cv-solver-api.hf.space";
+const DEFAULT_HF_SPACE_URL = "https://rodrigo1421-cv-curve-fitting.hf.space";
 
 function getStoredBackendUrl() {
     return localStorage.getItem('cv_backend_url') || "";

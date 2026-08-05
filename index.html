@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CV Curve Fitting Pro | Physics-Based Optimization Engine</title>
+    <title>CV Curve Fitting Pro | Physics-Based JAX Optimization Engine</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" charset="utf-8"></script>
@@ -13,8 +13,8 @@
     <nav class="top-nav">
         <div class="nav-container">
             <div class="nav-brand">
-                <span class="brand-title">CV Curve Fitting Pro</span>
-                <span class="brand-subtitle">Physics-Based Optimization Engine</span>
+                <span class="brand-title">⚡ CV Curve Fitting Pro</span>
+                <span class="brand-subtitle">JAX Diffusion &amp; DOS Optimizer (100% Free CPU)</span>
             </div>
             <div class="nav-links">
                 <div class="engine-badge-btn" id="engine-status-badge" title="Click to view backend connection guide">
@@ -38,11 +38,12 @@
                     </header>
                     <div class="panel-body">
                         <form id="cv-form">
-                            <!-- File Upload & Demo Loader -->
+                            <!-- File Upload & Drag-and-Drop Area -->
                             <div class="form-group file-upload-wrapper" id="drop-zone">
-                                <label>Upload CV Data (.csv)</label>
+                                <label>Upload Cyclic Voltammetry File (.csv)</label>
                                 <div class="file-upload-custom">
-                                    <label for="csv-file" class="btn-secondary" id="choose-file-btn">Choose File</label>
+                                    <label for="csv-file" class="btn-secondary" id="choose-file-btn">📁 Choose CSV File</label>
+                                    <span class="drag-hint">or drag and drop file here</span>
                                 </div>
                                 <div class="file-name-row">
                                     <span id="file-name-display">No file chosen</span>
@@ -52,26 +53,26 @@
 
                             <!-- Data Mapping & Column Selector -->
                             <fieldset class="form-section">
-                                <legend>Column Selection & Cycle Presets</legend>
+                                <legend>Column Selection &amp; Cycle Presets</legend>
                                 <div class="cycle-preset-container" id="cycle-preset-container">
                                     <div class="preset-row">
                                         <span class="preset-cycle-tag">Cycle 1:</span>
-                                        <button type="button" class="preset-pill-btn" data-pot="0" data-cur="1" data-skip="10">Raw (0, 1)</button>
+                                        <button type="button" class="preset-pill-btn" data-pot="0" data-cur="1" data-skip="5">Raw (0, 1)</button>
                                         <button type="button" class="preset-pill-btn" data-pot="2" data-cur="3" data-skip="1">Adjusted (2, 3)</button>
                                     </div>
                                     <div class="preset-row">
                                         <span class="preset-cycle-tag">Cycle 2:</span>
-                                        <button type="button" class="preset-pill-btn" data-pot="4" data-cur="5" data-skip="10">Raw (4, 5)</button>
+                                        <button type="button" class="preset-pill-btn" data-pot="4" data-cur="5" data-skip="5">Raw (4, 5)</button>
                                         <button type="button" class="preset-pill-btn" data-pot="6" data-cur="7" data-skip="1">Adjusted (6, 7)</button>
                                     </div>
                                     <div class="preset-row">
                                         <span class="preset-cycle-tag">Cycle 3:</span>
-                                        <button type="button" class="preset-pill-btn active" data-pot="8" data-cur="9" data-skip="10">Raw (8, 9)</button>
+                                        <button type="button" class="preset-pill-btn active" data-pot="8" data-cur="9" data-skip="5">Raw (8, 9)</button>
                                         <button type="button" class="preset-pill-btn" data-pot="10" data-cur="11" data-skip="1">Adjusted (10, 11)</button>
                                     </div>
                                     <div class="preset-row">
                                         <span class="preset-cycle-tag">Cycle 4:</span>
-                                        <button type="button" class="preset-pill-btn" data-pot="12" data-cur="13" data-skip="10">Raw (12, 13)</button>
+                                        <button type="button" class="preset-pill-btn" data-pot="12" data-cur="13" data-skip="5">Raw (12, 13)</button>
                                         <button type="button" class="preset-pill-btn" data-pot="14" data-cur="15" data-skip="1">Adjusted (14, 15)</button>
                                     </div>
                                 </div>
@@ -109,36 +110,36 @@
                                 <div class="col-stats-preview" id="col-stats-preview">
                                     <div class="stat-item"><span class="stat-label">V Range:</span> <span id="stat-v-range">-1.00V to 1.00V</span></div>
                                     <div class="stat-item"><span class="stat-label">I Range:</span> <span id="stat-i-range">-3.24e-5A to 6.83e-5A</span></div>
-                                    <div class="stat-item"><span class="stat-label">Points:</span> <span id="stat-points-count">5,419</span></div>
+                                    <div class="stat-item"><span class="stat-label">Points:</span> <span id="stat-points-count">0</span></div>
                                 </div>
                             </fieldset>
 
                             <!-- Physical Parameters -->
                             <fieldset class="form-section">
-                                <legend>Physical Parameters</legend>
+                                <legend>Physical &amp; Electrochemical Parameters</legend>
                                 <div class="input-grid">
                                     <div class="form-group">
-                                        <label for="scan_rate">Scan Rate (V/s)</label>
+                                        <label for="scan_rate" title="Cyclic voltammetry scan speed">Scan Rate &nu; (V/s)</label>
                                         <input type="number" id="scan_rate" name="scan_rate" step="0.001" value="0.010" required>
                                     </div>
                                     <div class="form-group">
-                                        <label for="film_thickness">Film Thickness (cm)</label>
+                                        <label for="film_thickness" title="Electrode thin film thickness L">Film Thickness L (cm)</label>
                                         <input type="number" id="film_thickness" name="film_thickness" step="1e-6" value="0.0001" required>
                                     </div>
                                     <div class="form-group">
-                                        <label for="v_min">Min Potential (V)</label>
+                                        <label for="v_min">Min Potential V<sub>min</sub> (V)</label>
                                         <input type="number" id="v_min" name="v_min" step="0.05" value="-1.0" required>
                                     </div>
                                     <div class="form-group">
-                                        <label for="v_max">Max Potential (V)</label>
+                                        <label for="v_max">Max Potential V<sub>max</sub> (V)</label>
                                         <input type="number" id="v_max" name="v_max" step="0.05" value="1.0" required>
                                     </div>
                                     <div class="form-group">
-                                        <label for="skip_factor">Downsample Factor</label>
-                                        <input type="number" id="skip_factor" name="skip_factor" min="1" value="5" required>
+                                        <label for="skip_factor" title="Downsample factor for faster JAX execution on free CPU">Downsample Factor</label>
+                                        <input type="number" id="skip_factor" name="skip_factor" min="1" max="50" value="5" required>
                                     </div>
                                     <div class="form-group">
-                                        <label for="num_peaks">Number of Peaks</label>
+                                        <label for="num_peaks" title="Number of Gaussian basis peaks for DOS deconvolution">Gaussian Peak Count</label>
                                         <input type="number" id="num_peaks" name="num_peaks" min="5" max="100" value="50" required>
                                     </div>
                                 </div>
@@ -147,20 +148,20 @@
                             <!-- Advanced Optimization Settings -->
                             <div class="advanced-section">
                                 <button type="button" class="advanced-toggle" id="advanced-toggle" aria-expanded="false">
-                                    <span>Advanced Optimization Settings</span>
+                                    <span>Advanced Solver Settings</span>
                                     <span class="toggle-icon" id="toggle-icon">▼</span>
                                 </button>
                                 <div class="advanced-content hidden" id="advanced-content">
                                     <fieldset class="form-section">
-                                        <legend>Solver Parameters</legend>
+                                        <legend>L-BFGS-B &amp; Fourier Settings</legend>
                                         <div class="input-grid">
                                             <div class="form-group">
                                                 <label for="max_iter">Max Iterations</label>
-                                                <input type="number" id="max_iter" name="max_iter" value="100" min="10" max="1000" required>
+                                                <input type="number" id="max_iter" name="max_iter" value="100" min="10" max="500" required>
                                             </div>
                                             <div class="form-group">
                                                 <label for="num_terms">Fourier Modes</label>
-                                                <input type="number" id="num_terms" name="num_terms" value="50" min="5" max="200" required>
+                                                <input type="number" id="num_terms" name="num_terms" value="50" min="5" max="100" required>
                                             </div>
                                             <div class="form-group">
                                                 <label for="loss_weight_const">Loss Weight Const</label>
@@ -179,17 +180,19 @@
 
                                     <!-- Python Backend Server Configuration -->
                                     <fieldset class="form-section">
-                                        <legend>Python Server Endpoint</legend>
+                                        <legend>Backend Server Endpoint</legend>
                                         <div class="form-group">
                                             <label for="backend-url-input">Server API / WebSocket URL</label>
                                             <div class="input-action-row">
-                                                <input type="text" id="backend-url-input" placeholder="https://your-space.hf.space or http://127.0.0.1:8000" style="flex: 1; padding: 8px 12px; border: 1px solid var(--color-border); border-radius: 6px; font-family: monospace; font-size: 0.85rem;">
+                                                <input type="text" id="backend-url-input" placeholder="Auto-detected origin or Hugging Face Space URL" style="flex: 1; padding: 8px 12px; border: 1px solid var(--color-border); border-radius: 6px; font-family: monospace; font-size: 0.85rem;">
                                                 <button type="button" id="backend-save-btn" class="btn-secondary" style="padding: 8px 16px;">Connect</button>
                                             </div>
                                             <div class="preset-links-row" style="margin-top: 6px; display: flex; gap: 8px; font-size: 0.8rem;">
-                                                <button type="button" class="btn-text-link" id="preset-hf-btn">⚡ Use HF Space Cloud</button>
+                                                <button type="button" class="btn-text-link" id="preset-origin-btn">⚡ Use Current Host</button>
                                                 <span>&bull;</span>
-                                                <button type="button" class="btn-text-link" id="preset-local-btn">💻 Use Localhost:8000</button>
+                                                <button type="button" class="btn-text-link" id="preset-hf-btn">☁️ Use HF Cloud Space</button>
+                                                <span>&bull;</span>
+                                                <button type="button" class="btn-text-link" id="preset-local-btn">💻 Use Localhost</button>
                                             </div>
                                         </div>
                                     </fieldset>
@@ -201,11 +204,11 @@
                                 <legend>Solver Architecture</legend>
                                 <div class="form-group">
                                     <div class="engine-badge-row">
-                                        <span class="badge-tag-online">🐍 100% Pure Python JAX + SciPy Engine</span>
+                                        <span class="badge-tag-online">🐍 100% Free Python JAX + SciPy Engine</span>
                                     </div>
                                     <div class="engine-help-row" style="margin-top: 8px;">
-                                        <span class="engine-status-msg" id="engine-status-msg">Probing Python solver server...</span>
-                                        <button type="button" class="btn-text-link" id="backend-help-link">Deployment & Setup Guide</button>
+                                        <span class="engine-status-msg" id="engine-status-msg">Probing Python solver engine...</span>
+                                        <button type="button" class="btn-text-link" id="backend-help-link">Deployment &amp; Setup Guide</button>
                                     </div>
                                 </div>
                             </fieldset>
@@ -224,7 +227,7 @@
                         <div class="spinner hidden" id="status-spinner"></div>
                         <div class="status-info">
                             <h2 id="status-stage">System Ready</h2>
-                            <p id="status-details">Upload data or click "Load Demo Data" and execute optimization.</p>
+                            <p id="status-details">Choose your CV file (.csv) on the left to preview data and execute optimization.</p>
                         </div>
                     </div>
                     <div class="panel-body">
@@ -255,7 +258,7 @@
                     <div class="secondary-charts-grid">
                         <section class="panel">
                             <header class="panel-header">
-                                <h3>Density of States (DOS)</h3>
+                                <h3>Density of States DOS(V)</h3>
                             </header>
                             <div class="panel-body chart-wrapper-small">
                                 <div id="dos-chart"></div>
@@ -279,7 +282,7 @@
     <div class="modal-backdrop hidden" id="doc-modal" role="dialog" aria-modal="true" aria-labelledby="doc-title">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 id="doc-title">Physical Model & Theory Documentation</h2>
+                <h2 id="doc-title">Physical Model &amp; Theory Documentation</h2>
                 <button type="button" class="modal-close" id="doc-close-btn" aria-label="Close modal">&times;</button>
             </div>
             <div class="modal-body">
@@ -335,36 +338,28 @@
     <div class="modal-backdrop hidden" id="backend-modal" role="dialog" aria-modal="true" aria-labelledby="backend-modal-title">
         <div class="modal-card">
             <div class="modal-header">
-                <h2 id="backend-modal-title">⚡ Python JAX Solver Server Guide</h2>
+                <h2 id="backend-modal-title">⚡ 100% Free Python JAX Solver Guide</h2>
                 <button type="button" class="modal-close-btn" id="backend-close-btn" aria-label="Close modal">&times;</button>
             </div>
             <div class="modal-body">
                 <section class="doc-section">
-                    <h3>Option A: Free Hugging Face Spaces Cloud Deployment (For Public Users)</h3>
-                    <p>To let any user run the Python solver from their browser without installing Python:</p>
+                    <h3>Free Hugging Face Spaces Cloud Deployment ($0/month)</h3>
+                    <p>To let any user run the JAX solver from their browser without installing anything:</p>
                     <ol style="margin-left: 1.25rem; font-size: 0.9rem; line-height: 1.6;">
-                        <li>Go to <a href="https://huggingface.co/new-space" target="_blank" style="color: var(--color-primary); text-decoration: underline;"><strong>huggingface.co/new-space</strong></a>.</li>
-                        <li>Name your space (e.g. <code>cv-solver-api</code>) and choose <strong>Docker</strong> as the Space SDK.</li>
-                        <li>Push or link this repository. Hugging Face will automatically build and host the high-speed JAX container for free.</li>
-                        <li>Paste your Space URL (e.g. <code>https://username-cv-solver-api.hf.space</code>) into the <strong>Python Server Endpoint</strong> field in Advanced Settings.</li>
+                        <li>Go to <a href="https://huggingface.co/new-space" target="_blank" style="color: var(--color-accent); text-decoration: underline;"><strong>huggingface.co/new-space</strong></a>.</li>
+                        <li>Name your Space (e.g. <code>cv-curve-fitter</code>) and choose <strong>Gradio</strong> or <strong>Docker</strong> SDK.</li>
+                        <li>Choose <strong>Hardware: CPU basic (2 vCPU, 16 GB RAM) - 100% Free</strong>.</li>
+                        <li>Push this repository to Hugging Face. Your web app will build and go live immediately!</li>
                     </ol>
                 </section>
 
                 <section class="doc-section">
-                    <h3>Option B: Local Python Backend (For Offline / Personal Use)</h3>
-                    <p>In your local project folder:</p>
+                    <h3>Local Execution (Offline)</h3>
+                    <p>Run directly in your local terminal:</p>
                     <div class="code-snippet-box">
-                        <code>Double-click: <strong>start_backend.bat</strong></code>
+                        <code>python app.py</code>
                     </div>
-                    <p>Or run directly in your terminal:</p>
-                    <div class="code-snippet-box">
-                        <code>python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload</code>
-                    </div>
-                </section>
-
-                <section class="doc-section">
-                    <h3>Automatic Status Connection</h3>
-                    <p>This web interface probes the server automatically and displays a green indicator once connected.</p>
+                    <p>Then open <strong>http://127.0.0.1:7860</strong> in your browser.</p>
                 </section>
             </div>
             <div class="modal-footer">
@@ -376,7 +371,7 @@
     <!-- Footer -->
     <footer class="site-footer">
         <div class="footer-container">
-            <p>&copy; 2026 CV Curve Fitting Pro &bull; Physics-Based Electrochemical Optimizer &bull; Client-Side WebAssembly Powered</p>
+            <p>&copy; 2026 CV Curve Fitting Pro &bull; Physics-Based Electrochemical Optimizer &bull; 100% Free JAX CPU Engine</p>
         </div>
     </footer>
 

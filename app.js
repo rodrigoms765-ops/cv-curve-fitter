@@ -1,5 +1,5 @@
 // CV Curve Fitting Pro - Pure Python JAX + SciPy Engine Client
-// Connected to Python FastAPI / WebSocket Backend (Hugging Face Spaces or Localhost)
+// Connected to Python FastAPI / WebSocket Backend (100% Free CPU Hugging Face Spaces or Localhost)
 
 // Global State
 let activeSocket = null;
@@ -23,9 +23,11 @@ function getStoredBackendUrl() {
 function resolveEndpoints(rawUrl) {
     let url = (rawUrl || "").trim().replace(/\/+$/, "");
     if (!url) {
-        // If on localhost / 127.0.0.1, default to local, otherwise default to HF Space Cloud
+        // If current window is on localhost or 127.0.0.1 or on an HF space directly
         if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-            url = DEFAULT_LOCAL_URL;
+            url = window.location.port ? `${window.location.protocol}//${window.location.host}` : DEFAULT_LOCAL_URL;
+        } else if (window.location.hostname.endsWith(".hf.space") || window.location.hostname.includes("huggingface.co")) {
+            url = `${window.location.protocol}//${window.location.host}`;
         } else {
             url = DEFAULT_HF_SPACE_URL;
         }
@@ -47,7 +49,6 @@ function resolveEndpoints(rawUrl) {
         wsSolve = url.includes("/ws/solve") ? url : url + "/ws/solve";
         httpHealth = url.replace("ws://", "http://").replace(/\/ws\/solve\/?$/, "") + "/health";
     } else {
-        // Default protocol
         httpHealth = "https://" + url + "/health";
         wsSolve = "wss://" + url + "/ws/solve";
     }
@@ -86,7 +87,7 @@ const layoutConfig = {
     margin: { t: 30, r: 30, l: 70, b: 60 }
 };
 
-// Probe Python Backend (tries configured URL, then localhost fallback)
+// Probe Python Backend (Health Check)
 async function probePythonBackend() {
     const dot = document.getElementById('engine-dot');
     const label = document.getElementById('engine-label');
@@ -94,13 +95,14 @@ async function probePythonBackend() {
 
     const urlsToTest = [
         currentEndpoints,
+        resolveEndpoints(window.location.origin),
         resolveEndpoints(DEFAULT_LOCAL_URL)
     ];
 
     for (let ep of urlsToTest) {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 2000);
+            const timeoutId = setTimeout(() => controller.abort(), 2500);
             const res = await fetch(ep.httpHealth, { signal: controller.signal });
             clearTimeout(timeoutId);
 
@@ -111,24 +113,24 @@ async function probePythonBackend() {
                 activeBackendType = isLocal ? "local" : "cloud";
 
                 if (dot) dot.className = 'status-dot online';
-                if (label) label.innerText = isLocal ? '⚡ Local JAX Online' : '☁️ Hugging Face Cloud Online';
+                if (label) label.innerText = isLocal ? '⚡ Local JAX Ready' : '☁️ Free Cloud JAX Ready';
                 if (msg) {
-                    msg.innerText = isLocal ? '⚡ Connected to Local JAX Backend (Port 8000)' : '☁️ Connected to Hugging Face Cloud Engine';
+                    msg.innerText = isLocal ? '⚡ Connected to Local JAX Backend' : '☁️ Connected to Free Cloud JAX Engine';
                     msg.className = 'engine-status-msg online';
                 }
                 return true;
             }
         } catch (e) {
-            // Offline on this endpoint
+            // Offline or waking
         }
     }
 
     isBackendAvailable = false;
     activeBackendType = "offline";
-    if (dot) dot.className = 'status-dot offline';
-    if (label) label.innerText = '⚠️ Python Backend Offline';
+    if (dot) dot.className = 'status-dot probing';
+    if (label) label.innerText = 'Connecting JAX Engine...';
     if (msg) {
-        msg.innerText = 'Python solver offline. Connect Hugging Face Space URL or run local server.';
+        msg.innerText = 'Connecting to Python JAX engine (If cloud space is waking, it may take 15s)...';
         msg.className = 'engine-status-msg';
     }
     return false;
@@ -136,17 +138,18 @@ async function probePythonBackend() {
 
 // Initial probe & periodic polling
 probePythonBackend();
-setInterval(probePythonBackend, 6000);
+setInterval(probePythonBackend, 7000);
 
 // Endpoint Configuration Controls
 document.addEventListener('DOMContentLoaded', () => {
     const urlInput = document.getElementById('backend-url-input');
     const saveBtn = document.getElementById('backend-save-btn');
+    const originPreset = document.getElementById('preset-origin-btn');
     const hfPreset = document.getElementById('preset-hf-btn');
     const localPreset = document.getElementById('preset-local-btn');
 
     if (urlInput) {
-        urlInput.value = getStoredBackendUrl() || (window.location.hostname === "localhost" ? DEFAULT_LOCAL_URL : DEFAULT_HF_SPACE_URL);
+        urlInput.value = getStoredBackendUrl() || currentEndpoints.rawUrl;
     }
 
     if (saveBtn && urlInput) {
@@ -155,6 +158,15 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('cv_backend_url', val);
             currentEndpoints = resolveEndpoints(val);
             document.getElementById('engine-status-msg').innerText = 'Testing connection...';
+            probePythonBackend();
+        });
+    }
+
+    if (originPreset && urlInput) {
+        originPreset.addEventListener('click', () => {
+            urlInput.value = window.location.origin;
+            localStorage.setItem('cv_backend_url', window.location.origin);
+            currentEndpoints = resolveEndpoints(window.location.origin);
             probePythonBackend();
         });
     }
@@ -280,7 +292,7 @@ function analyzeCSVAndPopulateColumns(content) {
         }
     }
 
-    // Track cycle numbers for standard 4-column-per-cycle pattern
+    // Identify standard cyclic voltammetry column headers
     for (let c = 0; c < colCount; c++) {
         let rawHeader = hasHeader && firstLineFields[c] ? firstLineFields[c] : `Column ${c}`;
         let cycleNum = Math.floor(c / 4) + 1;
@@ -370,7 +382,7 @@ function updateCycleButtonsActiveState(pot, cur) {
 }
 
 // Preset Buttons Event Delegation
-const presetContainer = document.getElementById('cycle-preset-container') || document.getElementById('cycle-preset-buttons');
+const presetContainer = document.getElementById('cycle-preset-container');
 if (presetContainer) {
     presetContainer.addEventListener('click', (e) => {
         if (e.target && e.target.classList.contains('preset-pill-btn')) {
@@ -437,7 +449,7 @@ function updateLivePreviewFromColumns() {
         expPotential = previewPot;
         expCurrent = previewCur;
         
-        // Update Stats Card
+        // Update Stats Bar
         let minV = Math.min(...previewPot);
         let maxV = Math.max(...previewPot);
         let minI = Math.min(...previewCur);
@@ -454,7 +466,7 @@ function updateLivePreviewFromColumns() {
         initLiveChart(expPotential, expCurrent);
         
         document.getElementById('status-stage').innerText = 'Data Loaded & Ready';
-        document.getElementById('status-details').innerText = `Previewing Col ${potCol} (V) vs Col ${curCol} (I) [${previewPot.length} points]. Click Execute Optimization to fit.`;
+        document.getElementById('status-details').innerText = `Previewing Col ${potCol} (V) vs Col ${curCol} (I) [${previewPot.length} points]. Click 'Execute Optimization' to fit.`;
     }
 }
 
@@ -521,14 +533,14 @@ if (dropZone) {
     });
 }
 
-// Form Submission & Dual-Mode Execution Dispatcher
+// Form Submission & Solver Execution
 const cvForm = document.getElementById('cv-form');
 if (cvForm) {
     cvForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         
         if (!stagedFileContent) {
-            alert('Please select a CSV file first.');
+            alert('Please select and upload a CSV data file first.');
             return;
         }
 
@@ -538,7 +550,6 @@ if (cvForm) {
             config[key] = value;
         });
 
-        // Make sure selected columns are integers
         config.pot_col = parseInt(document.getElementById('pot_col').value, 10);
         config.cur_col = parseInt(document.getElementById('cur_col').value, 10);
 
@@ -549,8 +560,8 @@ if (cvForm) {
 
 // Execution via Python JAX / SciPy Backend WebSocket
 function executePythonSolver(fileContent, config) {
-    document.getElementById('status-stage').innerText = 'Connecting to Python Backend...';
-    document.getElementById('status-details').innerText = `Opening WebSocket on ${currentEndpoints.wsSolve}...`;
+    document.getElementById('status-stage').innerText = 'Connecting to JAX Engine...';
+    document.getElementById('status-details').innerText = `Opening WebSocket connection on ${currentEndpoints.wsSolve}...`;
 
     if (activeSocket) {
         activeSocket.close();
@@ -566,8 +577,8 @@ function executePythonSolver(fileContent, config) {
 
     activeSocket.onopen = () => {
         const isLocal = currentEndpoints.rawUrl.includes("127.0.0.1") || currentEndpoints.rawUrl.includes("localhost");
-        document.getElementById('status-stage').innerText = isLocal ? '⚡ Local JAX Engine Running' : '☁️ Hugging Face Cloud Engine Running';
-        document.getElementById('status-details').innerText = 'Hardware-accelerated XLA optimization with L-BFGS-B in progress...';
+        document.getElementById('status-stage').innerText = isLocal ? '⚡ Local JAX Engine Running' : '☁️ Cloud JAX Engine Running';
+        document.getElementById('status-details').innerText = 'Hardware-accelerated JAX XLA optimization with L-BFGS-B in progress...';
         
         activeSocket.send(JSON.stringify({
             action: 'solve',
@@ -597,11 +608,11 @@ function executePythonSolver(fileContent, config) {
 
 function handleBackendOffline() {
     document.getElementById('status-stage').innerText = '⚠️ Python Backend Offline';
-    document.getElementById('status-details').innerText = 'Connecting to Python server at ' + currentEndpoints.rawUrl + '... (If the cloud server was asleep, it may take 15s to wake up)';
+    document.getElementById('status-details').innerText = 'Unable to connect to ' + currentEndpoints.rawUrl + '. If cloud space was sleeping, please wait ~15s and retry.';
     resetUI();
 }
 
-// Universal Message Handler for Solver Messages (both Worker & WebSocket)
+// Universal Message Handler for Solver Messages
 function handleSolverMessage(msg) {
     if (msg.type === 'init') {
         expPotential = msg.exp_potential;
@@ -641,7 +652,7 @@ function resetUI() {
     if (spinner) spinner.classList.add('hidden');
 }
 
-// Plotly Live Charting with Connected Hysteresis Loop
+// Plotly Live Charting
 function initLiveChart(potential, current) {
     const traceExp = {
         x: potential,
@@ -681,7 +692,7 @@ function updateLiveChart(data) {
     }, {}, [0, 1]);
 }
 
-// Completion & Visualizations
+// Completion & Extracted Parameters Display
 function finishOptimization(data) {
     latestResults = data;
     resetUI();
@@ -689,13 +700,37 @@ function finishOptimization(data) {
     document.getElementById('status-stage').innerText = 'Optimization Complete';
     document.getElementById('status-details').innerText = 'Model converged successfully. Extracted physical parameters displayed below.';
 
-    // Populate Parameter Table
     const params = data.parameters;
-    document.getElementById('param-diffusivity').innerText = params.diffusivity.toExponential(4);
-    document.getElementById('param-beta-left').innerText = params.beta_left.toFixed(4);
-    document.getElementById('param-beta-right').innerText = params.beta_right.toFixed(4);
-    document.getElementById('param-v-center').innerText = params.v_center.toFixed(4);
-    document.getElementById('param-offset').innerText = params.baseline_offset.toExponential(4);
+    const paramsContainer = document.getElementById('params-output');
+    if (paramsContainer) {
+        paramsContainer.innerHTML = `
+            <div class="stat-card">
+                <span class="stat-title">Baseline Diffusivity (D₀)</span>
+                <span class="stat-value highlight">${params.diffusivity.toExponential(4)}</span>
+                <span class="stat-unit">cm² / s</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-title">Center Potential (V₀)</span>
+                <span class="stat-value">${params.v_center.toFixed(4)}</span>
+                <span class="stat-unit">Volts</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-title">Left Asymmetry (&beta;<sub>L</sub>)</span>
+                <span class="stat-value">${params.beta_left.toFixed(4)}</span>
+                <span class="stat-unit">V⁻²</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-title">Right Asymmetry (&beta;<sub>R</sub>)</span>
+                <span class="stat-value">${params.beta_right.toFixed(4)}</span>
+                <span class="stat-unit">V⁻²</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-title">Baseline Current Offset</span>
+                <span class="stat-value">${params.baseline_offset.toExponential(4)}</span>
+                <span class="stat-unit">Amperes</span>
+            </div>
+        `;
+    }
 
     const resultsPanel = document.getElementById('results-panel');
     if (resultsPanel) resultsPanel.classList.remove('hidden');
@@ -704,55 +739,7 @@ function finishOptimization(data) {
 }
 
 function renderDiagnosticPlots(plots) {
-    // 1. Final CV Fit Plot
-    const traceExp = {
-        x: plots.exp_potential,
-        y: plots.exp_current,
-        mode: 'lines+markers',
-        type: 'scatter',
-        name: 'Experimental Data',
-        line: { color: '#64748B', width: 1.5 },
-        marker: { color: '#64748B', size: 3, opacity: 0.7 }
-    };
-
-    const traceSim = {
-        x: plots.exp_potential,
-        y: plots.sim_current,
-        mode: 'lines',
-        type: 'scatter',
-        name: 'Physics Fit',
-        line: { color: '#0F172A', width: 2.5 }
-    };
-
-    const cvLayout = Object.assign({}, layoutConfig, {
-        title: { text: 'Final Cyclic Voltammogram Fit', font: { size: 14 } },
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)', autorange: true }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current (A)', autorange: true }),
-        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.85)' }
-    });
-
-    Plotly.react('cv-fit-plot', [traceExp, traceSim], cvLayout, { responsive: true });
-
-    // 2. Diffusivity D(V) Plot
-    const traceDiff = {
-        x: plots.v_plot,
-        y: plots.d_of_v,
-        mode: 'lines',
-        type: 'scatter',
-        name: 'D(V)',
-        line: { color: '#2563EB', width: 2.5 }
-    };
-
-    const diffLayout = Object.assign({}, layoutConfig, {
-        title: { text: 'Voltage-Dependent Diffusivity D(V)', font: { size: 14 } },
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)', autorange: true }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Diffusivity (cm²/s)', type: 'log', autorange: true }),
-        showlegend: false
-    });
-
-    Plotly.react('diffusivity-plot', [traceDiff], diffLayout, { responsive: true });
-
-    // 3. Density of States DOS(V) Plot with Sub-bands
+    // 1. Density of States DOS(V) Plot with Sub-bands
     const dosTraces = [];
 
     if (plots.dos_matrix && plots.dos_matrix.length > 0) {
@@ -785,7 +772,26 @@ function renderDiagnosticPlots(plots) {
         showlegend: false
     });
 
-    Plotly.react('dos-plot', dosTraces, dosLayout, { responsive: true });
+    Plotly.react('dos-chart', dosTraces, dosLayout, { responsive: true });
+
+    // 2. Diffusivity D(V) Plot
+    const traceDiff = {
+        x: plots.v_plot,
+        y: plots.d_of_v,
+        mode: 'lines',
+        type: 'scatter',
+        name: 'D(V)',
+        line: { color: '#2563EB', width: 2.5 }
+    };
+
+    const diffLayout = Object.assign({}, layoutConfig, {
+        title: { text: 'Voltage-Dependent Diffusivity D(V)', font: { size: 14 } },
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential (V)', autorange: true }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Diffusivity (cm²/s)', type: 'log', autorange: true }),
+        showlegend: false
+    });
+
+    Plotly.react('diffusivity-chart', [traceDiff], diffLayout, { responsive: true });
 }
 
 // Data Export Utilities
@@ -833,6 +839,3 @@ if (exportCsvBtn) {
         downloadFile(rows.join("\n"), 'cv_optimization_data.csv', 'text/csv');
     });
 }
-
-// Initial Worker Spawn
-initWorker();

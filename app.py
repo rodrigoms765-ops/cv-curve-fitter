@@ -1,18 +1,7 @@
 import os
 import sys
 from pathlib import Path
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-import gradio as gr
-
-# Hugging Face ZeroGPU registration stub (if running on ZeroGPU hardware)
-try:
-    import spaces
-    @spaces.GPU
-    def gpu_support_fn():
-        return True
-except (ImportError, Exception):
-    pass
+import uvicorn
 
 # Add project root and backend folder to Python path
 ROOT_DIR = Path(__file__).resolve().parent
@@ -22,49 +11,40 @@ if str(ROOT_DIR) not in sys.path:
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from backend.main import handle_solver_websocket, health_check
+from backend.main import app, handle_solver_websocket, health_check
 
-# 1. Initialize Root FastAPI Application
-app = FastAPI(title="CV Curve Fitting Pro - JAX Engine")
+# Optionally mount Gradio documentation interface if gradio is available (Hugging Face Spaces)
+try:
+    import gradio as gr
 
-# 2. Add Cross-Origin Resource Sharing (CORS) for external web clients (e.g. GitHub Pages)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# 3. Register Custom REST & WebSocket Endpoints Directly
-app.add_api_route("/health", health_check, methods=["GET"])
-app.add_api_route("/api/health", health_check, methods=["GET"])
-app.add_api_websocket_route("/ws/solve", handle_solver_websocket)
-app.add_api_websocket_route("/ws", handle_solver_websocket)
-
-# 4. Create Native Gradio Blocks Interface
-with gr.Blocks(title="CV Curve Fitting Pro - JAX Engine") as demo:
-    gr.Markdown("# ⚡ CV Curve Fitting Pro - JAX Engine")
-    gr.Markdown("""
-    ### Hardware-Accelerated Electrochemical CV Solver (Pure Python JAX + SciPy)
-    - **Engine**: JAX Reverse-Mode Automatic Differentiation & L-BFGS-B Optimization
-    - **WebSocket API**: `/ws/solve`
-    - **Status Check**: `/health`
-    """)
-    gr.HTML("""
-    <div style="margin: 20px 0; padding: 24px; background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-family: sans-serif;">
-        <h2 style="color: #60a5fa; margin-top: 0;">🚀 Live Web Application</h2>
-        <p style="color: #cbd5e1; font-size: 1rem; line-height: 1.6;">
-            The backend solver engine is active and ready to process simulations.
-            You can use the full interactive visual application on GitHub Pages:
-        </p>
-        <div style="margin-top: 16px;">
-            <a href="https://rodrigoms765-ops.github.io/cv-curve-fitter/" target="_blank" style="display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; border-radius: 8px; font-weight: bold; text-decoration: none; box-shadow: 0 2px 6px rgba(59,130,246,0.4);">
-                Open Interactive CV Solver Web App &rarr;
-            </a>
+    with gr.Blocks(title="CV Curve Fitting Pro - JAX Engine") as demo:
+        gr.Markdown("# ⚡ Cyclic Voltammetry (CV) Curve Fitting Pro")
+        gr.Markdown("""
+        ### 100% Free Hardware-Accelerated Electrochemical CV Solver (Pure Python JAX + SciPy)
+        - **Compute Engine**: JAX Reverse-Mode Automatic Differentiation & L-BFGS-B Optimization
+        - **Hardware Acceleration**: Hugging Face ZeroGPU (NVIDIA A100/H100 - 100% Free) & CPU
+        - **WebSocket API**: `/ws/solve`
+        - **Health Probe**: `/health`
+        """)
+        gr.HTML("""
+        <div style="margin: 20px 0; padding: 24px; background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-family: sans-serif;">
+            <h2 style="color: #60a5fa; margin-top: 0;">🚀 Interactive Web Application Active</h2>
+            <p style="color: #cbd5e1; font-size: 1rem; line-height: 1.6;">
+                The full interactive CV curve fitting dashboard with real-time Plotly charts, cycle selectors, and parameter extraction is running at the root URL.
+            </p>
+            <div style="margin-top: 16px;">
+                <a href="/" style="display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; border-radius: 8px; font-weight: bold; text-decoration: none; box-shadow: 0 2px 6px rgba(59,130,246,0.4);">
+                    Open Main Interactive Dashboard &rarr;
+                </a>
+            </div>
         </div>
-    </div>
-    """)
+        """)
 
-# 5. Mount Gradio onto the Root FastAPI App
-app = gr.mount_gradio_app(app, demo, path="/")
+    app = gr.mount_gradio_app(app, demo, path="/gradio")
+except ImportError:
+    pass
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 7860))
+    print(f"Starting CV Curve Fitting Server on port {port} (ZeroGPU & CPU Ready)...")
+    uvicorn.run(app, host="0.0.0.0", port=port)

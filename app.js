@@ -107,15 +107,27 @@ async function probePythonBackend() {
             clearTimeout(timeoutId);
 
             if (res.ok) {
+                const healthData = await res.json().catch(() => ({}));
                 isBackendAvailable = true;
                 currentEndpoints = ep;
                 const isLocal = ep.rawUrl.includes("127.0.0.1") || ep.rawUrl.includes("localhost");
+                const isZeroGpu = (healthData.hardware && healthData.hardware.includes("ZeroGPU")) || (healthData.engine && healthData.engine.includes("ZeroGPU"));
                 activeBackendType = isLocal ? "local" : "cloud";
 
                 if (dot) dot.className = 'status-dot online';
-                if (label) label.innerText = isLocal ? '⚡ Local JAX Ready' : '☁️ Free Cloud JAX Ready';
+                if (label) {
+                    if (isZeroGpu) label.innerText = '⚡ ZeroGPU Ready (A100)';
+                    else if (isLocal) label.innerText = '⚡ Local JAX Ready';
+                    else label.innerText = '☁️ Free Cloud JAX Ready';
+                }
                 if (msg) {
-                    msg.innerText = isLocal ? '⚡ Connected to Local JAX Backend' : '☁️ Connected to Free Cloud JAX Engine';
+                    if (isZeroGpu) {
+                        msg.innerText = '⚡ Connected to Free Hugging Face ZeroGPU (NVIDIA A100/H100)';
+                    } else if (isLocal) {
+                        msg.innerText = '⚡ Connected to Local JAX Backend';
+                    } else {
+                        msg.innerText = '☁️ Connected to Free Cloud JAX Engine';
+                    }
                     msg.className = 'engine-status-msg online';
                 }
                 return true;

@@ -42,26 +42,46 @@ def gpu_zerogpu_runner(input_str=""):
     """ZeroGPU registered execution point for Hugging Face container startup check."""
     return "ZeroGPU JAX Engine Ready & Active"
 
-# Try Gradio integration (Default on Hugging Face Spaces)
+def load_inlined_html():
+    """Load index.html with inlined style.css and app.js for direct native rendering."""
+    index_file = ROOT_DIR / "index.html"
+    if not index_file.exists():
+        index_file = ROOT_DIR / "frontend" / "index.html"
+        
+    css_file = ROOT_DIR / "style.css"
+    if not css_file.exists():
+        css_file = ROOT_DIR / "frontend" / "style.css"
+        
+    js_file = ROOT_DIR / "app.js"
+    if not js_file.exists():
+        js_file = ROOT_DIR / "frontend" / "app.js"
+
+    html_content = index_file.read_text(encoding="utf-8") if index_file.exists() else "<h2>Dashboard Loading...</h2>"
+    css_content = css_file.read_text(encoding="utf-8") if css_file.exists() else ""
+    js_content = js_file.read_text(encoding="utf-8") if js_file.exists() else ""
+
+    # Inline CSS & JavaScript directly to prevent iframe blocking or relative path failures
+    inlined = html_content
+    inlined = inlined.replace('<link rel="stylesheet" href="style.css">', f"<style>\n{css_content}\n</style>")
+    inlined = inlined.replace('<script src="app.js"></script>', f"<script>\n{js_content}\n</script>")
+    return inlined
+
+# Gradio integration for Hugging Face ZeroGPU
 has_gradio = False
 try:
     import gradio as gr
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.staticfiles import StaticFiles
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, HTMLResponse
 
     custom_css = """
-    footer {visibility: hidden !important;}
-    .gradio-container {max-width: 100% !important; padding: 0 !important; margin: 0 !important;}
+    footer {visibility: hidden !important; display: none !important;}
+    .gradio-container {max-width: 100% !important; padding: 0 !important; margin: 0 !important; background: #0f172a !important;}
+    .prose {max-width: 100% !important;}
     """
 
     with gr.Blocks(title="CV Curve Fitting Pro - JAX Engine", css=custom_css) as demo:
-        with gr.Row():
-            gr.HTML("""
-            <div style="width: 100%; height: 96vh; margin: 0; padding: 0; overflow: hidden; background: #0f172a;">
-                <iframe src="/app-view" style="width: 100%; height: 100%; border: none; display: block;" allow="clipboard-read; clipboard-write"></iframe>
-            </div>
-            """)
+        gr.HTML(load_inlined_html())
         
         # ZeroGPU event handler registration so Hugging Face scans & verifies @spaces.GPU
         dummy_input = gr.Textbox(value="ping", visible=False)
@@ -69,7 +89,7 @@ try:
         dummy_btn = gr.Button("Run ZeroGPU", visible=False)
         dummy_btn.click(fn=gpu_zerogpu_runner, inputs=[dummy_input], outputs=[dummy_output])
 
-    # Attach FastAPI routes and static files directly to demo.app
+    # Attach FastAPI routes directly to demo.app
     demo.app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -84,24 +104,6 @@ try:
     demo.app.add_api_websocket_route("/ws/solve", handle_solver_websocket)
     demo.app.add_api_websocket_route("/ws", handle_solver_websocket)
 
-    # Determine static frontend directory
-    static_dir = ROOT_DIR / "frontend"
-    if not static_dir.exists() or not (static_dir / "index.html").exists():
-        static_dir = ROOT_DIR
-
-    @demo.app.get("/app-view")
-    async def serve_app_view():
-        return FileResponse(str(static_dir / "index.html"))
-
-    @demo.app.get("/style.css")
-    async def serve_style():
-        return FileResponse(str(static_dir / "style.css"), media_type="text/css")
-
-    @demo.app.get("/app.js")
-    async def serve_js():
-        return FileResponse(str(static_dir / "app.js"), media_type="application/javascript")
-
-    demo.app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     has_gradio = True
 except ImportError:
     has_gradio = False

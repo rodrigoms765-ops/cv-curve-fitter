@@ -1,3 +1,10 @@
+import os
+import sys
+from pathlib import Path
+
+# Add backend directory to sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -5,9 +12,13 @@ import pandas as pd
 import io
 import uvicorn
 import asyncio
-from cv_solver import solve_cv
+
+try:
+    from backend.cv_solver import solve_cv
+except ImportError:
+    from cv_solver import solve_cv
+
 import traceback
-import os
 
 app = FastAPI(title="CV Curve Fitting Pro - JAX Engine")
 

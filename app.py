@@ -42,29 +42,23 @@ def gpu_zerogpu_runner(input_str=""):
     """ZeroGPU registered execution point for Hugging Face container startup check."""
     return "ZeroGPU JAX Engine Ready & Active"
 
-def load_inlined_html():
-    """Load index.html with inlined style.css and app.js for direct native rendering."""
+def get_app_assets():
+    """Load index.html, style.css, and app.js."""
     index_file = ROOT_DIR / "index.html"
-    if not index_file.exists():
-        index_file = ROOT_DIR / "frontend" / "index.html"
-        
     css_file = ROOT_DIR / "style.css"
-    if not css_file.exists():
-        css_file = ROOT_DIR / "frontend" / "style.css"
-        
     js_file = ROOT_DIR / "app.js"
-    if not js_file.exists():
-        js_file = ROOT_DIR / "frontend" / "app.js"
 
     html_content = index_file.read_text(encoding="utf-8") if index_file.exists() else "<h2>Dashboard Loading...</h2>"
     css_content = css_file.read_text(encoding="utf-8") if css_file.exists() else ""
     js_content = js_file.read_text(encoding="utf-8") if js_file.exists() else ""
 
-    # Inline CSS & JavaScript directly to prevent iframe blocking or relative path failures
+    # Inline CSS & JS for 100% self-contained execution
     inlined = html_content
     inlined = inlined.replace('<link rel="stylesheet" href="style.css">', f"<style>\n{css_content}\n</style>")
     inlined = inlined.replace('<script src="app.js"></script>', f"<script>\n{js_content}\n</script>")
-    return inlined
+    return inlined, css_content, js_content
+
+inlined_html, app_css, app_js = get_app_assets()
 
 # Gradio integration for Hugging Face ZeroGPU
 has_gradio = False
@@ -74,14 +68,19 @@ try:
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import FileResponse, HTMLResponse
 
-    custom_css = """
-    footer {visibility: hidden !important; display: none !important;}
-    .gradio-container {max-width: 100% !important; padding: 0 !important; margin: 0 !important; background: #0f172a !important;}
-    .prose {max-width: 100% !important;}
+    head_html = f"""
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+    {app_css}
+    footer {{visibility: hidden !important; display: none !important;}}
+    .gradio-container {{max-width: 100% !important; padding: 0 !important; margin: 0 !important; background: #0f172a !important;}}
+    .prose {{max-width: 100% !important;}}
+    </style>
     """
 
-    with gr.Blocks(title="CV Curve Fitting Pro - JAX Engine", css=custom_css) as demo:
-        gr.HTML(load_inlined_html())
+    with gr.Blocks(title="CV Curve Fitting Pro - JAX Engine", head=head_html, js=app_js) as demo:
+        gr.HTML(inlined_html)
         
         # ZeroGPU event handler registration so Hugging Face scans & verifies @spaces.GPU
         dummy_input = gr.Textbox(value="ping", visible=False)

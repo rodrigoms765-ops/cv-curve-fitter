@@ -14,15 +14,15 @@
         <div class="nav-container">
             <div class="nav-brand">
                 <span class="brand-title">⚡ CV Curve Fitting Pro</span>
-                <span class="brand-subtitle">JAX Diffusion &amp; DOS Optimizer (100% Free CPU)</span>
+                <span class="brand-subtitle">JAX Diffusion &amp; DOS Optimizer (Free ZeroGPU &bull; NVIDIA A100)</span>
             </div>
             <div class="nav-links">
-                <div class="engine-badge-btn" id="engine-status-badge" title="Click to view backend connection guide">
+                <div class="engine-badge-btn" id="engine-status-badge" onclick="window.toggleModal && window.toggleModal('backend-modal', true);" title="Click to view backend connection guide">
                     <span class="status-dot probing" id="engine-dot"></span>
                     <span class="engine-text" id="engine-label">Probing JAX Engine...</span>
                 </div>
                 <a href="#solver" id="nav-solver-btn" class="active">Solver</a>
-                <a href="#documentation" id="nav-doc-btn">Documentation</a>
+                <a href="#documentation" id="nav-doc-btn" onclick="window.toggleModal && window.toggleModal('doc-modal', true);">Documentation</a>
             </div>
         </div>
     </nav>
@@ -37,18 +37,18 @@
                         <h2>Optimization Configuration</h2>
                     </header>
                     <div class="panel-body">
-                        <form id="cv-form">
+                        <form id="cv-form" onsubmit="window.handleFormSubmit && window.handleFormSubmit(event);">
                             <!-- File Upload & Drag-and-Drop Area -->
-                            <div class="form-group file-upload-wrapper" id="drop-zone">
-                                <label>Upload Cyclic Voltammetry File (.csv)</label>
-                                <div class="file-upload-custom">
-                                    <label for="csv-file" class="btn-secondary" id="choose-file-btn">📁 Choose CSV File</label>
+                            <div class="form-group file-upload-wrapper" id="drop-zone" onclick="document.getElementById('csv-file') && document.getElementById('csv-file').click();" ondragover="event.preventDefault(); event.stopPropagation(); this.classList.add('dragover');" ondragleave="event.preventDefault(); event.stopPropagation(); this.classList.remove('dragover');" ondrop="event.preventDefault(); event.stopPropagation(); this.classList.remove('dragover'); window.handleCSVDrop && window.handleCSVDrop(event);" style="cursor: pointer;">
+                                <label style="pointer-events: none;">Upload Cyclic Voltammetry File (.csv)</label>
+                                <div class="file-upload-custom" style="pointer-events: none;">
+                                    <span class="btn-secondary" id="choose-file-btn">📁 Choose CSV File</span>
                                     <span class="drag-hint">or drag and drop file here</span>
                                 </div>
-                                <div class="file-name-row">
+                                <div class="file-name-row" style="pointer-events: none;">
                                     <span id="file-name-display">No file chosen</span>
                                 </div>
-                                <input type="file" id="csv-file" name="file" accept=".csv,.txt" class="hidden-file-input">
+                                <input type="file" id="csv-file" name="file" accept=".csv,.txt" class="hidden-file-input" onchange="window.handleCSVFileChange && window.handleCSVFileChange(this);" onclick="event.stopPropagation();">
                             </div>
 
                             <!-- Data Mapping & Column Selector -->
@@ -57,29 +57,29 @@
                                 <div class="cycle-preset-container" id="cycle-preset-container">
                                     <div class="preset-row">
                                         <span class="preset-cycle-tag">Cycle 1:</span>
-                                        <button type="button" class="preset-pill-btn" data-pot="0" data-cur="1" data-skip="5">Raw (0, 1)</button>
-                                        <button type="button" class="preset-pill-btn" data-pot="2" data-cur="3" data-skip="1">Adjusted (2, 3)</button>
+                                        <button type="button" class="preset-pill-btn" data-pot="0" data-cur="1" data-skip="5" onclick="window.applyCyclePreset && window.applyCyclePreset(0, 1, 5, this);">Raw (0, 1)</button>
+                                        <button type="button" class="preset-pill-btn" data-pot="2" data-cur="3" data-skip="1" onclick="window.applyCyclePreset && window.applyCyclePreset(2, 3, 1, this);">Adjusted (2, 3)</button>
                                     </div>
                                     <div class="preset-row">
                                         <span class="preset-cycle-tag">Cycle 2:</span>
-                                        <button type="button" class="preset-pill-btn" data-pot="4" data-cur="5" data-skip="5">Raw (4, 5)</button>
-                                        <button type="button" class="preset-pill-btn" data-pot="6" data-cur="7" data-skip="1">Adjusted (6, 7)</button>
+                                        <button type="button" class="preset-pill-btn" data-pot="4" data-cur="5" data-skip="5" onclick="window.applyCyclePreset && window.applyCyclePreset(4, 5, 5, this);">Raw (4, 5)</button>
+                                        <button type="button" class="preset-pill-btn" data-pot="6" data-cur="7" data-skip="1" onclick="window.applyCyclePreset && window.applyCyclePreset(6, 7, 1, this);">Adjusted (6, 7)</button>
                                     </div>
                                     <div class="preset-row">
                                         <span class="preset-cycle-tag">Cycle 3:</span>
-                                        <button type="button" class="preset-pill-btn active" data-pot="8" data-cur="9" data-skip="5">Raw (8, 9)</button>
-                                        <button type="button" class="preset-pill-btn" data-pot="10" data-cur="11" data-skip="1">Adjusted (10, 11)</button>
+                                        <button type="button" class="preset-pill-btn active" data-pot="8" data-cur="9" data-skip="5" onclick="window.applyCyclePreset && window.applyCyclePreset(8, 9, 5, this);">Raw (8, 9)</button>
+                                        <button type="button" class="preset-pill-btn" data-pot="10" data-cur="11" data-skip="1" onclick="window.applyCyclePreset && window.applyCyclePreset(10, 11, 1, this);">Adjusted (10, 11)</button>
                                     </div>
                                     <div class="preset-row">
                                         <span class="preset-cycle-tag">Cycle 4:</span>
-                                        <button type="button" class="preset-pill-btn" data-pot="12" data-cur="13" data-skip="5">Raw (12, 13)</button>
-                                        <button type="button" class="preset-pill-btn" data-pot="14" data-cur="15" data-skip="1">Adjusted (14, 15)</button>
+                                        <button type="button" class="preset-pill-btn" data-pot="12" data-cur="13" data-skip="5" onclick="window.applyCyclePreset && window.applyCyclePreset(12, 13, 5, this);">Raw (12, 13)</button>
+                                        <button type="button" class="preset-pill-btn" data-pot="14" data-cur="15" data-skip="1" onclick="window.applyCyclePreset && window.applyCyclePreset(14, 15, 1, this);">Adjusted (14, 15)</button>
                                     </div>
                                 </div>
                                 <div class="input-grid">
                                     <div class="form-group">
                                         <label for="pot_col">Potential (V) Column</label>
-                                        <select id="pot_col" name="pot_col" class="engine-dropdown" required>
+                                        <select id="pot_col" name="pot_col" class="engine-dropdown" onchange="window.updateLivePreviewFromColumns && window.updateLivePreviewFromColumns();" required>
                                             <option value="8">Col 8: Cycle 3 Potential (V) [Raw]</option>
                                             <option value="10">Col 10: Cycle 3 Potential (V) [Adjusted]</option>
                                             <option value="0">Col 0: Cycle 1 Potential (V) [Raw]</option>
@@ -92,7 +92,7 @@
                                     </div>
                                     <div class="form-group">
                                         <label for="cur_col">Current (A) Column</label>
-                                        <select id="cur_col" name="cur_col" class="engine-dropdown" required>
+                                        <select id="cur_col" name="cur_col" class="engine-dropdown" onchange="window.updateLivePreviewFromColumns && window.updateLivePreviewFromColumns();" required>
                                             <option value="9">Col 9: Cycle 3 Current (A) [Raw]</option>
                                             <option value="11">Col 11: Cycle 3 Current (A) [Adjusted]</option>
                                             <option value="1">Col 1: Cycle 1 Current (A) [Raw]</option>
@@ -135,7 +135,7 @@
                                         <input type="number" id="v_max" name="v_max" step="0.05" value="1.0" required>
                                     </div>
                                     <div class="form-group">
-                                        <label for="skip_factor" title="Downsample factor for faster JAX execution on free CPU">Downsample Factor</label>
+                                        <label for="skip_factor" title="Downsample factor for faster execution">Downsample Factor</label>
                                         <input type="number" id="skip_factor" name="skip_factor" min="1" max="50" value="5" required>
                                     </div>
                                     <div class="form-group">
@@ -147,7 +147,7 @@
                             
                             <!-- Advanced Optimization Settings -->
                             <div class="advanced-section">
-                                <button type="button" class="advanced-toggle" id="advanced-toggle" aria-expanded="false">
+                                <button type="button" class="advanced-toggle" id="advanced-toggle" onclick="window.toggleAdvanced && window.toggleAdvanced();" aria-expanded="false">
                                     <span>Advanced Solver Settings</span>
                                     <span class="toggle-icon" id="toggle-icon">▼</span>
                                 </button>
@@ -185,14 +185,14 @@
                                             <label for="backend-url-input">Server API / WebSocket URL</label>
                                             <div class="input-action-row">
                                                 <input type="text" id="backend-url-input" placeholder="Auto-detected origin or Hugging Face Space URL" style="flex: 1; padding: 8px 12px; border: 1px solid var(--color-border); border-radius: 6px; font-family: monospace; font-size: 0.85rem;">
-                                                <button type="button" id="backend-save-btn" class="btn-secondary" style="padding: 8px 16px;">Connect</button>
+                                                <button type="button" id="backend-save-btn" onclick="window.saveBackendUrl && window.saveBackendUrl();" class="btn-secondary" style="padding: 8px 16px;">Connect</button>
                                             </div>
                                             <div class="preset-links-row" style="margin-top: 6px; display: flex; gap: 8px; font-size: 0.8rem;">
-                                                <button type="button" class="btn-text-link" id="preset-origin-btn">⚡ Use Current Host</button>
+                                                <button type="button" class="btn-text-link" id="preset-origin-btn" onclick="window.setBackendPreset && window.setBackendPreset('origin');">⚡ Use Current Host</button>
                                                 <span>&bull;</span>
-                                                <button type="button" class="btn-text-link" id="preset-hf-btn">☁️ Use HF Cloud Space</button>
+                                                <button type="button" class="btn-text-link" id="preset-hf-btn" onclick="window.setBackendPreset && window.setBackendPreset('hf');">☁️ Use HF Cloud Space</button>
                                                 <span>&bull;</span>
-                                                <button type="button" class="btn-text-link" id="preset-local-btn">💻 Use Localhost</button>
+                                                <button type="button" class="btn-text-link" id="preset-local-btn" onclick="window.setBackendPreset && window.setBackendPreset('local');">💻 Use Localhost</button>
                                             </div>
                                         </div>
                                     </fieldset>
@@ -204,11 +204,11 @@
                                 <legend>Solver Architecture</legend>
                                 <div class="form-group">
                                     <div class="engine-badge-row">
-                                        <span class="badge-tag-online">🐍 100% Free Python JAX + SciPy Engine</span>
+                                        <span class="badge-tag-online">⚡ 100% Free Python JAX Engine (ZeroGPU &bull; NVIDIA A100)</span>
                                     </div>
                                     <div class="engine-help-row" style="margin-top: 8px;">
                                         <span class="engine-status-msg" id="engine-status-msg">Probing Python solver engine...</span>
-                                        <button type="button" class="btn-text-link" id="backend-help-link">Deployment &amp; Setup Guide</button>
+                                        <button type="button" class="btn-text-link" id="backend-help-link" onclick="window.toggleModal && window.toggleModal('backend-modal', true);">Deployment &amp; Setup Guide</button>
                                     </div>
                                 </div>
                             </fieldset>
@@ -243,8 +243,8 @@
                         <header class="panel-header results-header-row">
                             <h2>Extracted Physical Parameters</h2>
                             <div class="export-actions">
-                                <button type="button" class="btn-export" id="export-json-btn">Export JSON</button>
-                                <button type="button" class="btn-export" id="export-csv-btn">Export Curves CSV</button>
+                                <button type="button" class="btn-export" id="export-json-btn" onclick="window.exportResultsJson && window.exportResultsJson();">Export JSON</button>
+                                <button type="button" class="btn-export" id="export-csv-btn" onclick="window.exportResultsCsv && window.exportResultsCsv();">Export Curves CSV</button>
                             </div>
                         </header>
                         <div class="panel-body">
@@ -283,7 +283,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h2 id="doc-title">Physical Model &amp; Theory Documentation</h2>
-                <button type="button" class="modal-close" id="doc-close-btn" aria-label="Close modal">&times;</button>
+                <button type="button" class="modal-close" id="doc-close-btn" onclick="window.toggleModal && window.toggleModal('doc-modal', false);" aria-label="Close modal">&times;</button>
             </div>
             <div class="modal-body">
                 <section class="doc-section">
@@ -329,7 +329,7 @@
                 </section>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn-primary modal-ok-btn" id="doc-ok-btn">Close Documentation</button>
+                <button type="button" class="btn-primary modal-ok-btn" id="doc-ok-btn" onclick="window.toggleModal && window.toggleModal('doc-modal', false);">Close Documentation</button>
             </div>
         </div>
     </div>
@@ -338,17 +338,17 @@
     <div class="modal-backdrop hidden" id="backend-modal" role="dialog" aria-modal="true" aria-labelledby="backend-modal-title">
         <div class="modal-card">
             <div class="modal-header">
-                <h2 id="backend-modal-title">⚡ 100% Free Python JAX Solver Guide</h2>
-                <button type="button" class="modal-close-btn" id="backend-close-btn" aria-label="Close modal">&times;</button>
+                <h2 id="backend-modal-title">⚡ 100% Free Python JAX ZeroGPU Guide</h2>
+                <button type="button" class="modal-close-btn" id="backend-close-btn" onclick="window.toggleModal && window.toggleModal('backend-modal', false);" aria-label="Close modal">&times;</button>
             </div>
             <div class="modal-body">
                 <section class="doc-section">
-                    <h3>Free Hugging Face Spaces Cloud Deployment ($0/month)</h3>
-                    <p>To let any user run the JAX solver from their browser without installing anything:</p>
+                    <h3>Free Hugging Face Spaces Cloud Deployment (ZeroGPU - $0/month)</h3>
+                    <p>To let any user run the JAX solver from their browser with 100% free NVIDIA A100/H100 acceleration:</p>
                     <ol style="margin-left: 1.25rem; font-size: 0.9rem; line-height: 1.6;">
                         <li>Go to <a href="https://huggingface.co/new-space" target="_blank" style="color: var(--color-accent); text-decoration: underline;"><strong>huggingface.co/new-space</strong></a>.</li>
-                        <li>Name your Space (e.g. <code>cv-curve-fitter</code>) and choose <strong>Gradio</strong> or <strong>Docker</strong> SDK.</li>
-                        <li>Choose <strong>Hardware: CPU basic (2 vCPU, 16 GB RAM) - 100% Free</strong>.</li>
+                        <li>Name your Space (e.g. <code>cv-curve-fitting</code>) and choose <strong>Space SDK: Gradio</strong>.</li>
+                        <li>Choose <strong>Hardware: ZeroGPU (NVIDIA A100 &bull; 100% Free)</strong>.</li>
                         <li>Push this repository to Hugging Face. Your web app will build and go live immediately!</li>
                     </ol>
                 </section>
@@ -363,7 +363,7 @@
                 </section>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn-primary modal-ok-btn" id="backend-ok-btn">Got It</button>
+                <button type="button" class="btn-primary modal-ok-btn" id="backend-ok-btn" onclick="window.toggleModal && window.toggleModal('backend-modal', false);">Got It</button>
             </div>
         </div>
     </div>
@@ -371,10 +371,12 @@
     <!-- Footer -->
     <footer class="site-footer">
         <div class="footer-container">
-            <p>&copy; 2026 CV Curve Fitting Pro &bull; Physics-Based Electrochemical Optimizer &bull; 100% Free JAX CPU Engine</p>
+            <p>&copy; 2026 CV Curve Fitting Pro &bull; Physics-Based Electrochemical Optimizer &bull; 100% Free ZeroGPU Engine</p>
         </div>
     </footer>
 
+    <!-- Bootstrap Trigger to ensure JS runs regardless of iframe or innerHTML injection -->
+    <img src="data:image/svg+xml;utf8,<svg/>" style="display:none" onload="window.__initCVApp && window.__initCVApp();" onerror="window.__initCVApp && window.__initCVApp();" />
     <script src="app.js"></script>
 </body>
 </html>

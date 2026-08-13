@@ -466,7 +466,8 @@ const layoutConfig = {
         gridcolor: 'rgba(255, 255, 255, 0.12)',
         zerolinecolor: 'rgba(255, 255, 255, 0.25)',
         tickfont: { color: '#cbd5e1', size: 12 },
-        titlefont: { color: '#ffffff', size: 14 }
+        titlefont: { color: '#ffffff', size: 14 },
+        tickangle: 0
     },
     yaxis: {
         gridcolor: 'rgba(255, 255, 255, 0.12)',
@@ -551,24 +552,27 @@ function displayExtractedResults() {
     const paramsDiv = document.getElementById('params-output');
     if (paramsDiv) {
         paramsDiv.innerHTML = '';
+        paramsDiv.className = ''; // Remove global grid class to prevent disorganized wrapping
         
         stagedFiles.filter(f => f.status === 'done' && f.results).forEach((f, i) => {
             const params = f.results.params || {};
             
+            const fileContainer = document.createElement('div');
+            fileContainer.style.marginBottom = '2rem';
+            
             const header = document.createElement('h4');
-            header.style.width = '100%';
-            header.style.marginTop = i > 0 ? '1.5rem' : '0';
             header.style.color = chartColors[i % chartColors.length];
+            header.style.marginBottom = '1rem';
             header.innerText = `Parameters: ${f.name}`;
-            paramsDiv.appendChild(header);
+            fileContainer.appendChild(header);
+
+            const grid = document.createElement('div');
+            grid.className = 'stats-grid'; // Apply grid locally per file
 
             const cards = [
                 { label: 'Diffusivity Constant (D₀)', value: `${(params.D0 || 0).toExponential(3)} cm²/s` },
                 { label: 'Thermodynamic Potential (V_c)', value: `${(params.Vc || 0).toFixed(4)} V` },
-                { label: 'Asymmetry Factor Left (β_L)', value: `${(params.beta_L || 0).toFixed(4)} V⁻²` },
-                { label: 'Asymmetry Factor Right (β_R)', value: `${(params.beta_R || 0).toFixed(4)} V⁻²` },
-                { label: 'Baseline DC Offset (I_offset)', value: `${(params.I_offset || 0).toExponential(3)} A` },
-                { label: 'Objective Loss (L_final)', value: f.results.final_loss ? f.results.final_loss.toExponential(4) : 'Converged' }
+                { label: 'Baseline DC Offset (I_offset)', value: `${(params.I_offset || 0).toExponential(3)} A` }
             ];
 
             cards.forEach(c => {
@@ -578,8 +582,11 @@ function displayExtractedResults() {
                     <span class="stat-label">${c.label}</span>
                     <span class="stat-value">${c.value}</span>
                 `;
-                paramsDiv.appendChild(card);
+                grid.appendChild(card);
             });
+            
+            fileContainer.appendChild(grid);
+            paramsDiv.appendChild(fileContainer);
         });
     }
 
@@ -650,31 +657,41 @@ window.exportResultsCsv = function() {
 
     let rows = [];
     
-    // Section 1: Aggregated Parameters
-    rows.push("=== AGGREGATED EXTRACTED PARAMETERS ===");
-    rows.push("FileName,D0_cm2_s,Vc_V,beta_L_V-2,beta_R_V-2,I_offset_A");
+    // Create Header Row 1 (File Names)
+    let header1 = [];
     doneFiles.forEach(f => {
-        const p = f.results.params;
-        rows.push(`${f.name},${p.D0},${p.Vc},${p.beta_L},${p.beta_R},${p.I_offset}`);
+        header1.push(`File: ${f.name}`, "", "", "", "", "");
     });
+    rows.push(header1.join(","));
     
-    rows.push("");
-    rows.push("=== AGGREGATED CURVES ===");
-    rows.push("FileName,Index,Potential_V,Exp_Current_A,Sim_Current_A,V_Plot,D_of_V,DOS_Total");
+    // Create Header Row 2 (Column Names)
+    let header2 = [];
+    doneFiles.forEach(() => {
+        header2.push("Exp_V", "Exp_I", "Sim_I", "V_Plot", "DOS", "D_V");
+    });
+    rows.push(header2.join(","));
     
+    // Find absolute max length across all files for both experimental data and plots
+    let globalMaxLen = 0;
     doneFiles.forEach(f => {
         const p = f.results.plots;
-        const maxLen = Math.max(p.exp_potential.length, p.v_plot.length);
-        for (let i = 0; i < maxLen; i++) {
-            const pot = i < p.exp_potential.length ? p.exp_potential[i] : "";
-            const expCur = i < p.exp_current.length ? p.exp_current[i] : "";
-            const simCur = i < p.sim_current.length ? p.sim_current[i] : "";
+        globalMaxLen = Math.max(globalMaxLen, p.exp_potential.length, p.v_plot.length);
+    });
+
+    for (let i = 0; i < globalMaxLen; i++) {
+        let row = [];
+        doneFiles.forEach(f => {
+            const p = f.results.plots;
+            const expV = i < p.exp_potential.length ? p.exp_potential[i] : "";
+            const expI = i < p.exp_current.length ? p.exp_current[i] : "";
+            const simI = i < p.sim_current.length ? p.sim_current[i] : "";
             const vp = i < p.v_plot.length ? p.v_plot[i] : "";
             const dv = i < p.d_of_v.length ? p.d_of_v[i] : "";
             const dos = i < p.dos_total.length ? p.dos_total[i] : "";
-            rows.push(`${f.name},${i},${pot},${expCur},${simCur},${vp},${dv},${dos}`);
-        }
-    });
+            row.push(expV, expI, simI, vp, dos, dv);
+        });
+        rows.push(row.join(","));
+    }
 
     downloadFile(rows.join("\\n"), 'cv_extracted_batch_curves.csv', 'text/csv');
 };

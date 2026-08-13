@@ -192,10 +192,6 @@ try:
             inputs=[gr_input_file, gr_input_config],
             outputs=[gr_output_json]
         )
-    
-    # We optionally mount gradio onto the fastAPI app for unified local testing
-    app = gr.mount_gradio_app(app, demo, path="/gradio")
-
     has_gradio = True
 except ImportError:
     has_gradio = False

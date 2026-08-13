@@ -461,7 +461,7 @@ const layoutConfig = {
     paper_bgcolor: 'transparent',
     plot_bgcolor: 'transparent',
     font: { family: 'Inter, -apple-system, sans-serif', color: '#f8fafc', size: 12 },
-    margin: { l: 80, r: 40, t: 45, b: 60 },
+    margin: { l: 80, r: 40, t: 60, b: 60 },
     xaxis: {
         gridcolor: 'rgba(255, 255, 255, 0.12)',
         zerolinecolor: 'rgba(255, 255, 255, 0.25)',
@@ -625,7 +625,9 @@ function renderSecondaryPlots() {
         title: { text: 'Extracted Density of States DOS(V)', font: { color: '#ffffff', size: 15, family: 'Inter, sans-serif' } },
         xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. Ref)', autorange: true }),
         yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'DOS (a.u.)', autorange: true, tickformat: '.2e' }),
-        showlegend: true
+        showlegend: true,
+        legend: { orientation: 'h', y: -0.3, font: { color: '#ffffff', size: 11 } },
+        margin: { l: 80, r: 40, t: 60, b: 100 }
     });
 
     Plotly.react('dos-chart', dosTraces, dosLayout, { responsive: true, displaylogo: false });
@@ -634,7 +636,9 @@ function renderSecondaryPlots() {
         title: { text: 'Voltage-Dependent Diffusivity Profile D(V)', font: { color: '#ffffff', size: 15, family: 'Inter, sans-serif' } },
         xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. Ref)', autorange: true }),
         yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Diffusivity <i>D</i> (cm²/s)', type: 'log', autorange: true, tickformat: '.1e' }),
-        showlegend: true
+        showlegend: true,
+        legend: { orientation: 'h', y: -0.3, font: { color: '#ffffff', size: 11 } },
+        margin: { l: 80, r: 40, t: 60, b: 100 }
     });
 
     Plotly.react('diffusivity-chart', diffTraces, diffLayout, { responsive: true, displaylogo: false });
@@ -693,7 +697,7 @@ window.exportResultsCsv = function() {
         rows.push(row.join(","));
     }
 
-    downloadFile(rows.join("\\n"), 'cv_extracted_batch_curves.csv', 'text/csv');
+    downloadFile(rows.join("\n"), 'cv_extracted_batch_curves.csv', 'text/csv');
 };
 
 function downloadFile(content, fileName, contentType) {

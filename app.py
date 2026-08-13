@@ -17,7 +17,7 @@ import pandas as pd
 import io
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.requests import Request
 
 # Configure paths
@@ -126,6 +126,14 @@ app.add_middleware(
 async def serve_frontend():
     """Serve the static HTML frontend on the root path for Render deployments."""
     return inlined_html
+
+@app.get("/style.css")
+async def serve_css():
+    return FileResponse(ROOT_DIR / "style.css")
+
+@app.get("/app.js")
+async def serve_js():
+    return FileResponse(ROOT_DIR / "app.js")
 
 @app.get("/health")
 @app.get("/api/health")

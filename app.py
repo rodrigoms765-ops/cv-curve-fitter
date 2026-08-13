@@ -15,6 +15,10 @@ import json
 import traceback
 import pandas as pd
 import io
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.requests import Request
 
 # Configure paths
 ROOT_DIR = Path(__file__).resolve().parent
@@ -105,32 +109,61 @@ def get_app_assets():
 
 inlined_html, app_css, app_js = get_app_assets()
 
-# Health check helper
-def health_info():
+# ---------------------------------------------------------
+# RENDER DEPLOYMENT: Pure FastAPI Setup
+# ---------------------------------------------------------
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_frontend():
+    """Serve the static HTML frontend on the root path for Render deployments."""
+    return inlined_html
+
+@app.get("/health")
+@app.get("/api/health")
+def health_info_route():
     import jax
-    devices = [str(d) for d in jax.devices()]
+    try:
+        devices = [str(d) for d in jax.devices()]
+    except Exception:
+        devices = []
     return {
         "status": "ok",
         "engine": "JAX Auto-Diff Hardware Accelerated Engine",
         "devices": devices
     }
 
-# Gradio integration for Hugging Face ZeroGPU
+@app.post("/solve")
+@app.post("/api/solve")
+async def api_solve_handler(request: Request):
+    """Direct HTTP API for pure FastAPI (Render) deployments."""
+    data = await request.json()
+    file_content = data.get("file_content", "")
+    config = data.get("config", {})
+    res_str = gradio_solve_cv(file_content, json.dumps(config))
+    return JSONResponse(content=json.loads(res_str))
+
+
+# ---------------------------------------------------------
+# HUGGING FACE DEPLOYMENT: Gradio ZeroGPU Setup
+# ---------------------------------------------------------
 has_gradio = False
 try:
     import gradio as gr
-    from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.requests import Request
-    from fastapi.responses import JSONResponse
 
     head_html = f"""
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-    :root, html, body {{
-        color-scheme: dark !important;
-        background-color: #0b1120 !important;
-    }}
+    :root, html, body {{ color-scheme: dark !important; background-color: #0b1120 !important; }}
     {app_css}
     footer {{visibility: hidden !important; display: none !important;}}
     .gradio-container {{
@@ -159,27 +192,9 @@ try:
             inputs=[gr_input_file, gr_input_config],
             outputs=[gr_output_json]
         )
-
-    # Attach FastAPI routes directly to demo.app
-    demo.app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    async def api_solve_handler(request: Request):
-        data = await request.json()
-        file_content = data.get("file_content", "")
-        config = data.get("config", {})
-        res_str = gradio_solve_cv(file_content, json.dumps(config))
-        return JSONResponse(content=json.loads(res_str))
-
-    demo.app.add_api_route("/health", health_info, methods=["GET"])
-    demo.app.add_api_route("/api/health", health_info, methods=["GET"])
-    demo.app.add_api_route("/api/solve", api_solve_handler, methods=["POST"])
-    demo.app.add_api_route("/solve", api_solve_handler, methods=["POST"])
+    
+    # We optionally mount gradio onto the fastAPI app for unified local testing
+    app = gr.mount_gradio_app(app, demo, path="/gradio")
 
     has_gradio = True
 except ImportError:
@@ -187,13 +202,10 @@ except ImportError:
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 7860))
+    import uvicorn
     if has_gradio:
-        print(f"Starting Gradio server on port {port}...")
+        print(f"Starting Gradio Server on port {port}...")
         demo.queue().launch(server_name="0.0.0.0", server_port=port, share=False)
     else:
-        import uvicorn
-        from fastapi import FastAPI
-        fastapi_app = FastAPI()
-        fastapi_app.add_api_route("/health", health_info, methods=["GET"])
-        print(f"Starting FastAPI server on port {port}...")
-        uvicorn.run(fastapi_app, host="0.0.0.0", port=port)
+        print(f"Starting Pure FastAPI Server (Render mode) on port {port}...")
+        uvicorn.run(app, host="0.0.0.0", port=port)

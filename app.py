@@ -56,7 +56,8 @@ def gradio_solve_cv(file_content: str, config_json: str):
             "tol_ftol": float(raw_config.get("tol_ftol", 1e-8)),
             "tol_gtol": float(raw_config.get("tol_gtol", 1e-7)),
             "num_terms": int(raw_config.get("num_terms", 50)),
-            "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0))
+            "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0)),
+            "use_tafel": str(raw_config.get("use_tafel", "true")).lower() == "true"
         }
         pot_col = int(raw_config.get("pot_col", 0))
         cur_col = int(raw_config.get("cur_col", 1))

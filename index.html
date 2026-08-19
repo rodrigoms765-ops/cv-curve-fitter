@@ -101,7 +101,13 @@
                                         <label for="film_thickness">Film Thickness <i>L</i> (cm)</label>
                                         <input type="number" step="any" id="film_thickness" name="film_thickness" value="0.0001" required />
                                     </div>
-                                    <div class="form-group"></div>
+                                    <div class="form-group">
+                                        <label for="use_tafel">Tafel Law Edge Fitting</label>
+                                        <select id="use_tafel" name="use_tafel" class="academic-dropdown">
+                                            <option value="true">Enabled (Default)</option>
+                                            <option value="false">Disabled</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div class="input-grid" style="margin-top: 0.65rem;">
                                     <div class="form-group">

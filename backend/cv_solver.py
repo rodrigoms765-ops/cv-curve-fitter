@@ -217,13 +217,13 @@ def solve_cv(df, config, pot_col, cur_col, queue, loop):
     def compute_forward(scaled_params, weights):
         use_tafel = float(USER_CONFIG.get("use_tafel", True))
         diffusivity = scaled_params[0] * OPTIMIZER_CONFIG["mult_diff"]
-        beta_left = scaled_params[1] * OPTIMIZER_CONFIG["mult_beta"] * use_tafel
-        beta_right = scaled_params[2] * OPTIMIZER_CONFIG["mult_beta"] * use_tafel
+        beta_left = scaled_params[1] * OPTIMIZER_CONFIG["mult_beta"]
+        beta_right = scaled_params[2] * OPTIMIZER_CONFIG["mult_beta"]
         v_center = scaled_params[3]
         baseline_offset = scaled_params[4] * OPTIMIZER_CONFIG["mult_offset"]
-        a_right = scaled_params[5] * OPTIMIZER_CONFIG["mult_bg_a"]
+        a_right = scaled_params[5] * OPTIMIZER_CONFIG["mult_bg_a"] * use_tafel
         k_right = scaled_params[6] * OPTIMIZER_CONFIG["mult_bg_k"]
-        a_left  = scaled_params[7] * OPTIMIZER_CONFIG["mult_bg_a"]
+        a_left  = scaled_params[7] * OPTIMIZER_CONFIG["mult_bg_a"] * use_tafel
         k_left  = scaled_params[8] * OPTIMIZER_CONFIG["mult_bg_k"]
         peaks_matrix = jnp.reshape(scaled_params[OPTIMIZER_CONFIG["num_globals"]:], (-1, 3))
             
@@ -331,10 +331,9 @@ def solve_cv(df, config, pot_col, cur_col, queue, loop):
     final_peaks = final_result.x[OPTIMIZER_CONFIG["num_globals"]:].reshape((-1, 3))
     
     # Generate plot data
-    use_tafel = float(USER_CONFIG.get("use_tafel", True))
     diffusivity = final_result.x[0] * OPTIMIZER_CONFIG["mult_diff"]
-    beta_left   = final_result.x[1] * OPTIMIZER_CONFIG["mult_beta"] * use_tafel
-    beta_right  = final_result.x[2] * OPTIMIZER_CONFIG["mult_beta"] * use_tafel
+    beta_left   = final_result.x[1] * OPTIMIZER_CONFIG["mult_beta"]
+    beta_right  = final_result.x[2] * OPTIMIZER_CONFIG["mult_beta"]
     v_center    = final_result.x[3]
     baseline_offset = final_result.x[4] * OPTIMIZER_CONFIG["mult_offset"]
 

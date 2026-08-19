@@ -222,22 +222,37 @@ window.updateLivePreviewFromColumns = function() {
 function addLoadedFiles(filesData) {
     if (filesData.length === 0) return;
     
-    stagedFiles = filesData.map(f => ({
-        name: f.name,
-        content: f.content,
-        expPotential: [],
-        expCurrent: [],
-        results: null,
-        status: 'pending'
-    }));
+    stagedFiles = filesData.map(f => {
+        let scanRate = 0.010;
+        let match = f.name.match(/(\d+(?:\.\d+)?)mVs/i);
+        if (match) {
+            scanRate = parseFloat(match[1]) / 1000.0;
+        } else {
+            match = f.name.match(/(\d+(?:\.\d+)?)V/i);
+            if (match) scanRate = parseFloat(match[1]);
+        }
+        return {
+            name: f.name,
+            content: f.content,
+            scanRate: scanRate,
+            expPotential: [],
+            expCurrent: [],
+            results: null,
+            status: 'pending'
+        };
+    });
 
     const fileNameDisplay = document.getElementById('file-name-display');
     if (fileNameDisplay) {
-        if (stagedFiles.length === 1) {
-            fileNameDisplay.innerText = stagedFiles[0].name;
-        } else {
-            fileNameDisplay.innerText = `${stagedFiles.length} files selected`;
-        }
+        fileNameDisplay.innerHTML = stagedFiles.map((f, i) => `
+            <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); padding: 0.5rem 1rem; border-radius: 4px; margin-bottom: 0.5rem;">
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%;">${f.name}</span>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <label for="scan_rate_${i}" style="font-size: 0.8rem; color: #cbd5e1;">Scan Rate (V/s):</label>
+                    <input type="number" step="any" id="scan_rate_${i}" value="${f.scanRate}" style="width: 80px; padding: 0.25rem; border-radius: 4px; border: 1px solid #334155; background: #1e293b; color: #fff; font-size: 0.85rem;" required />
+                </div>
+            </div>
+        `).join('');
         fileNameDisplay.classList.add('has-file');
     }
     
@@ -333,7 +348,11 @@ window.handleFormSubmit = async function(e) {
         if (detailsEl) detailsEl.innerText = 'Executing multi-stage non-linear L-BFGS-B optimization on JAX auto-diff engine...';
         
         try {
-            const data = await executeZeroGPUSolver(stagedFiles[i].content, config, i + 1, stagedFiles.length);
+            const fileConfig = Object.assign({}, config);
+            const srInput = document.getElementById(`scan_rate_${i}`);
+            fileConfig.scan_rate = srInput ? parseFloat(srInput.value) : 0.010;
+
+            const data = await executeZeroGPUSolver(stagedFiles[i].content, fileConfig, i + 1, stagedFiles.length);
             stagedFiles[i].results = data;
             stagedFiles[i].status = 'done';
             updateLivePlotProgress();

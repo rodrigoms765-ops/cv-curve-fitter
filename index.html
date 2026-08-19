@@ -49,8 +49,8 @@
                                     <span class="btn-file-select">Choose CSV Data</span>
                                     <span class="drag-hint">or drop file here</span>
                                 </div>
-                                <div class="file-status-row">
-                                    <span id="file-name-display">No file selected</span>
+                                <div class="file-status-container" id="file-name-display" style="width: 100%; margin-top: 1rem; text-align: left;">
+                                    <span style="display: block; text-align: center; color: #94a3b8;">No file selected</span>
                                 </div>
                                 <input type="file" id="csv-file-input" class="hidden-file-input" accept=".csv,.txt,.dat" multiple onchange="window.handleCSVFileChange && window.handleCSVFileChange(this);" />
                             </div>
@@ -98,13 +98,10 @@
                                 <legend>Physical &amp; Electrochemical Parameters</legend>
                                 <div class="input-grid">
                                     <div class="form-group">
-                                        <label for="scan_rate">Scan Rate <i>v</i> (V/s)</label>
-                                        <input type="number" step="any" id="scan_rate" name="scan_rate" value="0.010" required />
-                                    </div>
-                                    <div class="form-group">
                                         <label for="film_thickness">Film Thickness <i>L</i> (cm)</label>
                                         <input type="number" step="any" id="film_thickness" name="film_thickness" value="0.0001" required />
                                     </div>
+                                    <div class="form-group"></div>
                                 </div>
                                 <div class="input-grid" style="margin-top: 0.65rem;">
                                     <div class="form-group">

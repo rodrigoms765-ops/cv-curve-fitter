@@ -28,20 +28,8 @@ except ImportError:
     except ImportError:
         from FD_solver import solve_cv
 
-# ZeroGPU Support: Use Hugging Face ZeroGPU @spaces.GPU decorator if running on ZeroGPU
-try:
-    import spaces
-    has_spaces = True
-except Exception:
-    has_spaces = False
-
-if has_spaces:
-    @spaces.GPU(duration=120)
-    def compute_solve_cv(df, config, pot_col, cur_col, queue, loop):
-        solve_cv(df, config, pot_col, cur_col, queue, loop)
-else:
-    def compute_solve_cv(df, config, pot_col, cur_col, queue, loop):
-        solve_cv(df, config, pot_col, cur_col, queue, loop)
+def compute_solve_cv(df, config, pot_col, cur_col, queue, loop):
+    solve_cv(df, config, pot_col, cur_col, queue, loop)
 
 app = FastAPI(title="CV Curve Fitting Pro - JAX Engine")
 
@@ -62,11 +50,11 @@ def health_check():
     is_gpu = any("gpu" in d.lower() or "cuda" in d.lower() for d in devices)
     return {
         "status": "ok",
-        "engine": "JAX Hardware Accelerated (ZeroGPU / A100)" if (has_spaces or is_gpu) else "JAX Hardware Accelerated (CPU/XLA)",
-        "hardware": "Hugging Face ZeroGPU (NVIDIA A100/H100)" if has_spaces else ("GPU" if is_gpu else "CPU / Local"),
+        "engine": "JAX Hardware Accelerated (GPU/A100)" if is_gpu else "JAX Hardware Accelerated (CPU/XLA)",
+        "hardware": "GPU" if is_gpu else "CPU / Local",
         "cost": "100% Free",
         "devices": devices,
-        "features": ["ZeroGPU Dynamic Allocation", "Automatic Differentiation", "JIT Parallelized Scan", "L-BFGS-B Multi-stage"]
+        "features": ["Automatic Differentiation", "JIT Parallelized Scan", "L-BFGS-B Multi-stage"]
     }
 
 @app.post("/api/solve")

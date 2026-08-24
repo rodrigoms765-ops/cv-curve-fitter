@@ -5,8 +5,6 @@ ENV PYTHONUNBUFFERED=1 \
     PORT=7860 \
     JAX_PLATFORMS=cpu
 
-# Create a non-root user with UID 1000 (required for Hugging Face Spaces Docker SDK)
-RUN useradd -m -u 1000 user
 WORKDIR /app
 
 # Install system dependencies if needed
@@ -20,13 +18,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application source code
-COPY --chown=user:user . /app
+COPY . /app
 
-# Switch to non-root user
-USER user
-
-# Expose Hugging Face Space default port
+# Expose application port
 EXPOSE 7860
 
-# Run FastAPI / Gradio application
+# Run FastAPI application
 CMD ["python", "app.py"]

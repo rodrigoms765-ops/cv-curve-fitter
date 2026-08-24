@@ -286,38 +286,6 @@ window.handleCSVDrop = function(event) {
     });
 };
 
-// Helpers for Gradio Element Discovery and Value Setting
-function findGradioElement(selector) {
-    let el = document.querySelector(selector);
-    if (el) return el;
-    const grApp = document.querySelector('gradio-app');
-    if (grApp && grApp.shadowRoot) {
-        return grApp.shadowRoot.querySelector(selector);
-    }
-    return null;
-}
-
-function setGradioInputValue(containerSelector, val) {
-    const container = findGradioElement(containerSelector);
-    if (!container) return false;
-    const input = container.querySelector('textarea, input') || container;
-    
-    try {
-        const proto = Object.getPrototypeOf(input);
-        const desc = Object.getOwnPropertyDescriptor(proto, 'value');
-        if (desc && desc.set) {
-            desc.set.call(input, val);
-        } else {
-            input.value = val;
-        }
-    } catch (e) {
-        input.value = val;
-    }
-    
-    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-    return true;
-}
 
 // Global Form Submit Handler
 window.handleFormSubmit = async function(e) {
@@ -377,52 +345,18 @@ window.handleFormSubmit = async function(e) {
 // Execution via Native ZeroGPU Pipeline & Direct HTTP API
 async function executeZeroGPUSolver(fileContent, config, currentIdx, totalCount) {
     return new Promise(async (resolve, reject) => {
-        // 1. Native Gradio ZeroGPU Queue Trigger
-        const fileSet = setGradioInputValue('#gr_input_file', fileContent);
-        const configSet = setGradioInputValue('#gr_input_config', JSON.stringify(config));
-        const grBtn = findGradioElement('#gr_trigger_btn button') || findGradioElement('#gr_trigger_btn');
-
-        if (fileSet && configSet && grBtn) {
-            const startTime = Date.now();
-            setGradioInputValue('#gr_output_json', '');
-
-            const pollInterval = setInterval(() => {
-                const outContainer = findGradioElement('#gr_output_json');
-                const outEl = outContainer ? (outContainer.querySelector('textarea, input') || outContainer) : null;
-                const textVal = (outEl ? outEl.value : "") || (outContainer ? outContainer.innerText : "");
-
-                if (textVal && textVal.trim().startsWith('{') && textVal.trim().endsWith('}')) {
-                    clearInterval(pollInterval);
-                    try {
-                        const data = JSON.parse(textVal.trim());
-                        if (data.type === 'error') reject(new Error(data.message || 'Solver error'));
-                        else resolve(data);
-                    } catch (e) {
-                        reject(new Error(`Failed to parse output JSON: ${e.message}`));
-                    }
-                    return;
-                }
-
-                const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
-                const stageEl = document.getElementById('status-stage');
-                if (stageEl) stageEl.innerText = `⚡ Non-Linear Parameter Extraction File ${currentIdx}/${totalCount} (${elapsedSec}s)...`;
-
-                if (Date.now() - startTime > 180000) {
-                    clearInterval(pollInterval);
-                    reject(new Error("Optimization calculation timed out (3 min)."));
-                }
-            }, 500);
-
-            grBtn.click();
-            return;
-        }
-
-        // 2. Direct HTTP POST fallback
         const endpoints = [
             window.location.origin + "/api/solve",
             window.location.origin + "/solve",
             "http://127.0.0.1:8000/api/solve"
         ];
+
+        const startTime = Date.now();
+        const pollInterval = setInterval(() => {
+            const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+            const stageEl = document.getElementById('status-stage');
+            if (stageEl) stageEl.innerText = `⚡ Non-Linear Parameter Extraction File ${currentIdx}/${totalCount} (${elapsedSec}s)...`;
+        }, 500);
 
         for (const endpoint of endpoints) {
             try {
@@ -440,6 +374,7 @@ async function executeZeroGPUSolver(fileContent, config, currentIdx, totalCount)
                 clearTimeout(timeoutId);
 
                 if (res.ok) {
+                    clearInterval(pollInterval);
                     const data = await res.json();
                     if (data.type === 'error') reject(new Error(data.message || 'Solver error'));
                     else resolve(data);
@@ -449,6 +384,7 @@ async function executeZeroGPUSolver(fileContent, config, currentIdx, totalCount)
                 console.warn(`HTTP solve attempt on ${endpoint} failed:`, err);
             }
         }
+        clearInterval(pollInterval);
         reject(new Error("Could not communicate with solver engine."));
     });
 }

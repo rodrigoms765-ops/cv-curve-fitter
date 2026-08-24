@@ -1,13 +1,3 @@
-# Hugging Face ZeroGPU: import spaces at the top of the file
-try:
-    import spaces
-    GPU = spaces.GPU
-except Exception:
-    def GPU(*args, **kwargs):
-        def decorator(fn):
-            return fn
-        return decorator
-
 import os
 import sys
 from pathlib import Path
@@ -36,10 +26,8 @@ except ImportError:
     except ImportError:
         from FD_solver import solve_cv
 
-# Top-level @spaces.GPU function registered with Gradio for ZeroGPU A100 allocation
-@GPU(duration=120)
-def gradio_solve_cv(file_content: str, config_json: str):
-    """ZeroGPU registered execution point for JAX optimization."""
+def solve_cv_api(file_content: str, config_json: str):
+    """Execution point for JAX optimization."""
     try:
         if not file_content or not file_content.strip():
             return json.dumps({"type": "error", "message": "No CSV data file content provided. Please upload a cyclic voltammetry data file."})
@@ -157,60 +145,12 @@ async def api_solve_handler(request: Request):
     data = await request.json()
     file_content = data.get("file_content", "")
     config = data.get("config", {})
-    res_str = gradio_solve_cv(file_content, json.dumps(config))
+    res_str = solve_cv_api(file_content, json.dumps(config))
     return JSONResponse(content=json.loads(res_str))
 
-
-# ---------------------------------------------------------
-# HUGGING FACE DEPLOYMENT: Gradio ZeroGPU Setup
-# ---------------------------------------------------------
-has_gradio = False
-try:
-    import gradio as gr
-
-    head_html = f"""
-    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-    :root, html, body {{ color-scheme: dark !important; background-color: #0b1120 !important; }}
-    {app_css}
-    footer {{visibility: hidden !important; display: none !important;}}
-    .gradio-container {{
-        max-width: 100% !important; 
-        padding: 0 !important; 
-        margin: 0 !important; 
-        background: #0b1120 !important;
-        color: #e2e8f0 !important;
-    }}
-    .prose {{max-width: 100% !important;}}
-    .hidden-bridge {{position: absolute !important; opacity: 0 !important; pointer-events: none !important; height: 0 !important; width: 0 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; border: none !important;}}
-    </style>
-    """
-
-    with gr.Blocks(title="Cyclic Voltammetry Parameter Extraction & Physical Model Fitting", head=head_html, js=app_js) as demo:
-        # Native Gradio components for ZeroGPU hardware event dispatching
-        gr_input_file = gr.Textbox(value="", elem_id="gr_input_file", elem_classes=["hidden-bridge"])
-        gr_input_config = gr.Textbox(value="{}", elem_id="gr_input_config", elem_classes=["hidden-bridge"])
-        gr_output_json = gr.Textbox(value="", elem_id="gr_output_json", elem_classes=["hidden-bridge"])
-        gr_trigger_btn = gr.Button("Execute ZeroGPU", elem_id="gr_trigger_btn", elem_classes=["hidden-bridge"])
-
-        gr.HTML(inlined_html)
-
-        gr_trigger_btn.click(
-            fn=gradio_solve_cv,
-            inputs=[gr_input_file, gr_input_config],
-            outputs=[gr_output_json]
-        )
-    has_gradio = True
-except ImportError:
-    has_gradio = False
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 7860))
     import uvicorn
-    if has_gradio:
-        print(f"Starting Gradio Server on port {port}...")
-        demo.queue().launch(server_name="0.0.0.0", server_port=port, share=False)
-    else:
-        print(f"Starting Pure FastAPI Server (Render mode) on port {port}...")
-        uvicorn.run(app, host="0.0.0.0", port=port)
+    print(f"Starting Pure FastAPI Server (Render mode) on port {port}...")
+    uvicorn.run(app, host="0.0.0.0", port=port)

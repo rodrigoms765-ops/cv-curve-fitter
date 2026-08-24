@@ -17,14 +17,8 @@ for d in [str(ROOT_DIR), str(BACKEND_DIR)]:
     if d not in sys.path:
         sys.path.insert(0, d)
 
-# Import solver and backend handlers
-try:
-    from backend.cv_solver import solve_cv
-except ImportError:
-    try:
-        from cv_solver import solve_cv
-    except ImportError:
-        from FD_solver import solve_cv
+# Import solver
+from cv_solver import solve_cv
 
 def solve_cv_api(file_content: str, config_json: str):
     """Execution point for JAX optimization."""

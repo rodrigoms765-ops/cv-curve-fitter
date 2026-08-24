@@ -20,13 +20,7 @@ for d in [str(ROOT_DIR), str(BACKEND_DIR), str(CURRENT_DIR)]:
     if d not in sys.path:
         sys.path.insert(0, d)
 
-try:
-    from backend.cv_solver import solve_cv
-except ImportError:
-    try:
-        from cv_solver import solve_cv
-    except ImportError:
-        from FD_solver import solve_cv
+from cv_solver import solve_cv
 
 def compute_solve_cv(df, config, pot_col, cur_col, queue, loop):
     solve_cv(df, config, pot_col, cur_col, queue, loop)

@@ -215,14 +215,15 @@ def solve_cv(df, config, pot_col, cur_col, queue, loop):
 
     @jax.jit
     def compute_forward(scaled_params, weights):
+        use_tafel = float(USER_CONFIG.get("use_tafel", True))
         diffusivity = scaled_params[0] * OPTIMIZER_CONFIG["mult_diff"]
         beta_left = scaled_params[1] * OPTIMIZER_CONFIG["mult_beta"]
         beta_right = scaled_params[2] * OPTIMIZER_CONFIG["mult_beta"]
         v_center = scaled_params[3]
         baseline_offset = scaled_params[4] * OPTIMIZER_CONFIG["mult_offset"]
-        a_right = scaled_params[5] * OPTIMIZER_CONFIG["mult_bg_a"]
+        a_right = scaled_params[5] * OPTIMIZER_CONFIG["mult_bg_a"] * use_tafel
         k_right = scaled_params[6] * OPTIMIZER_CONFIG["mult_bg_k"]
-        a_left  = scaled_params[7] * OPTIMIZER_CONFIG["mult_bg_a"]
+        a_left  = scaled_params[7] * OPTIMIZER_CONFIG["mult_bg_a"] * use_tafel
         k_left  = scaled_params[8] * OPTIMIZER_CONFIG["mult_bg_k"]
         peaks_matrix = jnp.reshape(scaled_params[OPTIMIZER_CONFIG["num_globals"]:], (-1, 3))
             

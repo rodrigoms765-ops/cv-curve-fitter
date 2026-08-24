@@ -1,70 +1,50 @@
----
-title: CV Curve Fitting Pro - JAX Diffusion Engine
-emoji: ⚡
-colorFrom: blue
-colorTo: indigo
-sdk: gradio
-app_file: app.py
-pinned: false
-license: mit
----
+﻿# Cyclic Voltammetry (CV) Curve Fitting & Diffusion Simulation Engine
 
-# ⚡ Cyclic Voltammetry (CV) Curve Fitting & Diffusion Engine
+## Overview
 
-A high-performance, physics-based simulation and optimization web application to determine the potential-dependent **diffusion coefficient $D(V)$** and **electronic density of states $DOS(V)$** from Cyclic Voltammetry experimental data.
+This repository provides a high-performance, physics-based simulation and optimization framework for analyzing Cyclic Voltammetry (CV) experimental data. The primary objective of this software is to extract the potential-dependent diffusion coefficient, $D(V)$, and the electronic density of states, $DOS(V)$, from raw potentiostat datasets.
 
-**100% Free ZeroGPU & CPU Compatible**: Powered by Hugging Face ZeroGPU (NVIDIA A100 dynamic acceleration at $0.00 cost) and JAX automatic differentiation.
+The engine leverages JAX for hardware-accelerated automatic differentiation and JIT compilation, paired with SciPy's L-BFGS-B optimization algorithm, to solve the underlying partial differential equations (PDEs) governing 1D ion transport and diffusion within thin-film electrodes.
 
----
+## Key Features
 
-## 🌟 Features
-- **100% Free ZeroGPU Acceleration ($0.00 / month)**: Runs on Hugging Face ZeroGPU (NVIDIA A100/H100) or local CPU with zero setup fees.
-- **Physics-Based PDE Modeling**: Fast Fourier spectral decomposition of 1D ion transport and diffusion within thin-film electrodes.
-- **Hardware-Accelerated Auto-Diff**: JAX reverse-mode gradients enable rapid multi-stage L-BFGS-B parameter convergence in seconds.
-- **Interactive Visualizations (Plotly)**:
-  - Real-time live updating $I(V)$ curve fit overlay.
-  - Potential-dependent diffusion coefficient $D(V) = D_0 \exp(\beta (V - V_0)^2)$.
-  - Electronic Density of States ($DOS$) Gaussian deconvolution.
-- **User-Friendly Chemistry Workflow**:
-  - **Drag-and-Drop File Upload**: Direct upload for user `.csv` / `.txt` potentiostat files.
-  - **Potentiostat Preset Selector**: Quick buttons for Cycle 1, 2, 3, 4 (Raw vs. Adjusted) from Biologic, Gamry, or CH Instruments data.
-  - **1-Click Data Export**: Export fitted curve coordinates (`.csv`) and extracted physical parameters (`.json`).
+* **Physics-Based PDE Modeling:** Employs fast Fourier spectral decomposition to solve 1D ion transport and diffusion equations.
+* **Hardware-Accelerated Automatic Differentiation:** Utilizes JAX for reverse-mode gradients, enabling rapid and stable multi-stage parameter convergence.
+* **Multi-Stage Optimization:**
+  * *Stage 1 (Baseline Extraction):* Identifies constant and non-faradaic background current offsets.
+  * *Stage 1.5 (Exponential Charging Tails):* Fits Tafel-like charging behaviors near electrochemical potential window boundaries.
+  * *Stage 2 (Peak Anchoring):* Optimizes discrete potential state distributions under a constant baseline diffusivity, $D_0$.
+  * *Stage 3 (Non-Linear Global Polish):* Jointly refines the potential-dependent diffusivity $D(V) = D_0 \exp(\beta (V - V_0)^2)$, state densities, and charging offsets.
+* **Interactive Diagnostic Visualizations:** Provides real-time, interactive visualizations of the $I(V)$ curve fit overlay, extracted $D(V)$ profile, and Gaussian-deconvoluted $DOS(V)$.
+* **Web-Based Interface:** Includes a responsive FastAPI-driven web interface for uploading .csv or .txt potentiostat files, configuring hyperparameters, and exporting fitted curves and physical parameters.
 
----
+## Installation and Execution
 
-## 🚀 Quick Start (Local)
+### Requirements
+The software requires Python 3.10 or higher. 
 
-### 1. Install Dependencies
-```bash
-pip install -r requirements.txt
-```
+### Local Setup
+1. Clone the repository and navigate to the project root.
+2. Install the required dependencies:
+   \\\ash
+   pip install -r requirements.txt
+   \\\
 
-### 2. Run the Application
-```bash
+### Running the Server
+Execute the following command to start the local FastAPI web server:
+\\\ash
 python app.py
-```
-Open **[http://127.0.0.1:7860](http://127.0.0.1:7860)** in your browser.
+\\\
+Alternatively, you can start the uvicorn server directly:
+\\\ash
+uvicorn app:app --host 0.0.0.0 --port 7860
+\\\
+Navigate to http://localhost:7860 in your web browser to access the graphical interface.
 
----
+## Deployment
 
-## ☁️ Hugging Face Spaces Free Deployment (ZeroGPU)
+The application is configured for deployment on Render. The included ender.yaml specifies the build and start commands required to host the FastAPI application as a web service.
 
-1. Create a new Space on [Hugging Face Spaces](https://huggingface.co/new-space).
-2. Choose **Space SDK**: **Gradio**.
-3. Choose **Hardware**: **ZeroGPU (NVIDIA A100 &bull; 100% Free)**.
-4. Clone your Space repository and push these files:
-```bash
-git remote add hf https://huggingface.co/spaces/<YOUR_USERNAME>/<YOUR_SPACE_NAME>
-git push hf main
-```
-5. Your web app will automatically build and go live with free NVIDIA A100 acceleration!
+## License
 
----
-
-## 🔬 Mathematical Method Summary
-
-The solver fits experimental CV data through a 4-stage optimization procedure using L-BFGS-B minimization:
-1. **Stage 1 (Baseline Extraction)**: Identifies constant and non-faradaic background current offsets.
-2. **Stage 1.5 (Exponential Charging Tails)**: Fits Tafel-like charging behaviors near electrochemical potential window boundaries.
-3. **Stage 2 (Peak Anchoring)**: Optimizes discrete potential state distributions under baseline diffusivity $D_0$.
-4. **Stage 3 (Non-Linear Global Polish)**: Jointly refines potential-dependent diffusivity $D(V) = D_0 \exp(\beta (V - V_0)^2)$, state densities, and charging offsets.
+This project is licensed under the MIT License.

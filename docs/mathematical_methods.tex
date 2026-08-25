@@ -1,0 +1,169 @@
+\documentclass{article}
+
+\usepackage{graphicx}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{float}
+\graphicspath{{images/}}
+\usepackage{esint}
+
+\title{Chemistry Weiran}
+\author{Rodrigo Stehling}
+\date{June 2026}
+
+\begin{document}
+
+\section{Solving the PDE}
+
+We begin by writing down the problem explicitly, noting that the diffusion coefficient $D(t) = D(V(t))$ is time-dependent due to the voltage sweep:
+
+\begin{equation}
+    \begin{cases}
+        u_t = D(t)u_{xx}\\
+        u(0,t) = f(t)\\
+        u_x(L,t) = 0\\
+        u(x,0) = u(x,k\tilde{T})
+    \end{cases}
+\end{equation}
+
+We can solve this equation by shifting the inhomogeneity from the boundary into the main differential equation. Let $u(x,t) = v(x,t) + f(t)$:
+
+\begin{equation}
+    \label{v PDE}
+    \begin{cases}
+        v_t = D(t)v_{xx} - f'(t)\\
+        v(0,t) = 0\\
+        v_x(L,t) = 0\\
+        v(x,0) + f(0) = v(x,k\tilde{T}) + f(k\tilde{T})
+    \end{cases}
+\end{equation}
+
+We will approach this with the Spectral Method. We write:
+
+\begin{equation}
+    v(x,t) = \sum_{n=1}^\infty T_n(t)\phi_n(x)
+\end{equation}
+
+To match our boundary conditions, we conveniently choose the basis function $\phi_n(x) = \sin(\lambda_n x)$ with $\lambda_n = \frac{(2n-1)\pi}{2L}$. Putting this solution back into Eq.~\ref{v PDE}, we will solve for the $T_n(t)$ to obtain the full solution.
+
+\begin{equation}
+    \label{not projected}
+    \frac{\partial}{\partial t}\left(\sum_{n=1}^\infty T_n(t)\sin(\lambda_n x)\right) = D(t)\frac{\partial^2}{\partial x^2}\left(\sum_{n=1}^\infty T_n(t)\sin(\lambda_nx)\right) - f'(t)
+\end{equation}
+
+Next, we project $f'(t)$ onto our basis functions. Although $f'(t)$ is a constant in $x$, and is therefore even, we can perform an odd extension of our function and focus only on the interval of interest, $[0,L]$. This allows us to write:
+
+\begin{equation}
+    f'(t) = f'(t)\sum_{n=1}^\infty c_n \sin(\lambda_n x)
+\end{equation}
+where the coefficients are given by:
+
+\begin{equation}
+    c_n = \frac{2}{L}\int_0^L \sin(\lambda_n x)\;dx
+\end{equation}
+
+Substituting this back, we rewrite Eq.~\ref{not projected} as:
+
+\begin{equation}
+    \frac{\partial}{\partial t}\left(\sum_{n=1}^\infty T_n(t)\sin(\lambda_n x)\right) = D(t)\frac{\partial^2}{\partial x^2}\left(\sum_{n=1}^\infty T_n(t)\sin(\lambda_nx)\right) - \sum_{n=1}^\infty f'(t)c_n \sin(\lambda_n x)
+\end{equation}
+
+Multiplying both sides of the equation by $\sin(\lambda_m x)$ and integrating from $0$ to $L$, we utilize the following orthogonality relationship:
+
+\begin{equation}
+    \int_0^L\sin(\lambda_n x)\sin(\lambda_m x)\; dx= \frac{L}{2}\delta_{mn}
+\end{equation}
+
+This trick gives us the following equation for each $m$:
+\begin{equation}
+    T'_m(t) = -D(t)\lambda_m^2T_m - f'(t)c_m
+\end{equation}
+
+We solve this by using an integrating factor:
+\begin{equation}
+    \frac{d}{dt}\left( T_m(t)\exp\left(\lambda_m^2\int_0^t D(s)\; ds\right)\right) = -f'(t)c_m\exp\left(\lambda_m^2\int_0^t D(s)\; ds\right)
+\end{equation}
+
+We integrate over each individual time step $[t_{i-1},t_i]$ and define $\Delta t_i = t_i - t_{i-1}$. Assuming the time step is small enough that $D(t) \approx D(t_i)$ is roughly constant over this interval, we obtain:
+
+\begin{equation}
+    T_m(t_i) = T_m(t_{i-1})e^{-D(t_i)\lambda_m^2\Delta t_i} - c_m\int_{t_{i-1}}^{t_i}f'(\tau)e^{-D(t_i)\lambda_m^2(t_i-\tau)}\; d\tau
+\end{equation}
+
+Assuming $\Delta t_i$ is sufficiently small, the exponential inside the integral is approximately one for $\tau\in [t_{i-1},t_i]$. This yields:
+
+\begin{align*}
+        T_m(t_i) \approx & T_m(t_{i-1})e^{-D(t_i)\lambda_m^2\Delta t_i} - c_m\int_{t_{i-1}}^{t_i}f'(\tau)\; d\tau\\
+        =& T_m(t_{i-1})e^{-D(t_i)\lambda_m^2\Delta t_i} + c_m\left[f(t_{i-1}) - f(t_i)\right]
+\end{align*}
+
+Evaluating this iteratively for $i = 1,2,\dots$, we identify a pattern and can explicitly write:
+
+\begin{equation}
+    T_m(t_N) = T_m(t_0)\left(\prod_{i = 1}^{N} e^{-D(t_i)\lambda_m^2\Delta t_i}\right) + \sum_{i = 1}^N\left(c_m[f(t_{i-1}) - f(t_i)]\prod_{j = i+1}^N e^{-D(t_j)\lambda_m^2\Delta t_j}\right)
+\end{equation}
+
+Combining this with the periodic condition $T_m(0) = T_m(k\tilde{T})$, we can rewrite the expression to solve for the starting condition:
+
+\begin{equation}
+\label{Init Time}
+    T_m(0) = \frac{\sum_{i = 1}^N\left(c_m[f(t_{i-1}) - f(t_i)]\prod_{j = i+1}^N e^{-D(t_j)\lambda_m^2\Delta t_j}\right)}{1-\left(\prod_{i = 1}^{N} e^{-D(t_i)\lambda_m^2\Delta t_i}\right) }
+\end{equation}
+
+With the initial periodic state $T_m(0)$, we can evaluate $T_m(t_i)$ for all time steps. Substituting these coefficients yields the solution to the problem for $v(x,t)$. Finally, by adding the boundary function $f(t)$ back, we recover the complete theoretical solution to the original partial differential equation:
+
+\begin{equation}
+    u(x,t) = f(t) + \sum_{m=1}^\infty T_m(t)\sin(\lambda_m x)
+\end{equation}
+
+\section{Numerical Implementation}
+
+To map the mathematical solution to experimental Cyclic Voltammetry (CV) data, the model was implemented using Python. We utilize the JAX library for Just-In-Time (JIT) compilation and automatic differentiation to solve the inverse problem.
+
+\subsection{Modeling the Boundary Condition and Density of States}
+
+The time-dependent boundary condition $f(t)$ represents the equilibrium surface concentration driven by $V(t)$. This is determined by integrating the Density of States (DOS) up to the current voltage:
+\begin{equation}
+    f(V) = \int_{-\infty}^{V} \text{DOS}(v)\; dv
+\end{equation}
+To capture the complex redox behavior of the system, we model the true DOS as a superposition of $P$ independent Gaussian peaks. The exact analytical integral of a Gaussian yields an Error Function ($\text{erf}$). However, evaluating the Error Function iteratively is computationally expensive. To bypass this, we approximate the integrated Gaussians using a sum of logistic functions. We parameterize the boundary condition as:
+\begin{equation}
+    f(V) = \sum_{p=1}^P \frac{w_p}{1 + \exp\left[-\gamma_p(V - V_{c,p})\right]}
+\end{equation}
+where for each constituent peak $p$, $w_p$ is the weight (capacity), $V_{c,p}$ is the critical peak voltage, and $\gamma_p$ dictates the peak sharpness. This formulation allows JAX to rapidly compute both $f(t)$ and the DOS analytically without relying on expensive numerical integration.
+
+\subsection{Forward Model and Time-Stepping}
+
+To model the time-dependent diffusion coefficient, we use a phenomenological Gaussian distribution around a central voltage $V_c$, with asymmetric decay rates $\beta_L$ and $\beta_R$ for the anodic and cathodic sweeps:
+\begin{equation}
+    D(V) = D_0 \exp\left[\beta_{L,R} (V - V_c)^2\right].
+\end{equation}
+
+The periodic initial condition is computed directly using Eq.~\ref{Init Time}. This recursion is calculated rapidly using \texttt{jax.lax.scan}, which accumulates the exponential decay and forcing matrices. 
+
+The total number of particles $N(t)$ in the film is found by integrating the solution $u(x,t)$ over the spatial domain $[0,L]$. The pure Faradaic current is then given by $I = \frac{dN}{dt}$, evaluated numerically as a finite difference. To accurately match experimental data, we add a constant baseline offset ($I_{\text{offset}}$) and background exponential tails simulating Tafel-like kinetics at the voltage boundaries:
+\begin{equation}
+    I_{\text{sim}}(t) = \frac{\Delta N}{\Delta t} + I_{\text{offset}} + a_R e^{k_R(V - V_{\max})} - a_L e^{-k_L(V - V_{\min})}
+\end{equation}
+
+\subsection{Optimization Strategy}
+
+To extract the physical parameters, we frame the task as an optimization problem. The objective function minimizes the weighted mean squared error (MSE) between the simulated current $I_{\text{sim}}$ and the experimental current $I_{\text{exp}}$. 
+
+To ensure the optimizer captures the sharp Faradaic peaks rather than merely fitting the baseline, the loss function is weighted using the second derivative of the smoothed experimental current:
+\begin{equation}
+    W \propto 1 + \frac{\left| \frac{d^2I_{\text{exp}}}{dt^2} \right|}{\max\left| \frac{d^2I_{\text{exp}}}{dt^2} \right|}
+\end{equation}
+
+Because the parameter space is complex, finding a global minimum requires a structured approach. We minimize the loss function using the L-BFGS-B algorithm, leveraging exact gradients computed via JAX's reverse-mode automatic differentiation (\texttt{jax.value\_and\_grad}). To avoid local minima, the optimization is executed in four targeted stages:
+
+\begin{enumerate}
+    \item \textbf{Pure Flat Baseline:} Parameters are frozen except for the constant current offset to align the simulation with the data.
+    \item \textbf{Background Tails:} The exponential parameters ($a_{L,R}, k_{L,R}$) are optimized to fit the edges of the voltage sweep.
+    \item \textbf{Anchor Peaks (Constant $D$):} The diffusion coefficient is held constant while the heights and positions of the Gaussian peaks defining the density of states (DOS) are optimized.
+    \item \textbf{Full Non-Linear Polish:} All bounds are relaxed. The full set of parameters, including the asymmetric voltage-dependent diffusion parameters $\beta_L$ and $\beta_R$, are optimized simultaneously to achieve the final fit.
+\end{enumerate}
+
+Upon convergence, this routine yields the voltage-dependent diffusion $D(V)$ and the Density of States for the experimental chemical system.
+
+\end{document}

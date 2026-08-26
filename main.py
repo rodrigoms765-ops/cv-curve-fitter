@@ -29,7 +29,7 @@ from cv_solver import solve_cv, read_csv_text
 DEFAULTS = {
     "film_thickness": (float, 1e-4), "v_min": (float, -1.0), "v_max": (float, 1.0),
     "skip_factor": (int, 2), "num_peaks": (int, 20), "peak_sharpness": (float, 38.92),
-    "dos_smoothness": (float, 2.0), "max_iter": (int, 300),
+    "dos_smoothness": (float, 0.01), "max_iter": (int, 300),
     "tol_ftol": (float, 1e-12), "tol_gtol": (float, 1e-10),
     "num_terms": (int, 50), "loss_weight_const": (float, 1.0),
 }
@@ -37,7 +37,10 @@ DEFAULTS = {
 
 def build_config(raw):
     cfg = {k: cast(raw.get(k, dflt)) for k, (cast, dflt) in DEFAULTS.items()}
-    cfg["use_tafel"] = str(raw.get("use_tafel", "true")).lower() == "true"
+    mode = str(raw.get("background", "")).lower()
+    cfg["background"] = mode if mode in ("per_scan", "shared_k", "off") else (
+        "per_scan" if str(raw.get("use_tafel", "true")).lower() == "true" else "off")
+    cfg["smooth_width_V"] = float(raw.get("smooth_width_V", 0.35))
     return cfg
 
 

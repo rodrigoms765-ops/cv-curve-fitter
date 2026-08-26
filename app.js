@@ -537,7 +537,8 @@ function displayExtractedResults() {
             { label: 'Diffusivity D₀ (at V_c)', value: `${(p.D0 || 0).toExponential(3)} cm²/s` },
             { label: 'D(V) Minimum Potential (V_c)', value: `${(p.Vc || 0).toFixed(4)} V` },
             { label: 'β left / right', value: `${(p.beta_L || 0).toFixed(3)} / ${(p.beta_R || 0).toFixed(3)}` },
-            { label: 'DOS Width (FWHM)', value: `${(p.dos_fwhm || 0).toFixed(4)} V` }
+            { label: 'DOS Width (FWHM)', value: `${(p.dos_fwhm || 0).toFixed(4)} V` },
+            { label: 'DOS Integrated Charge', value: `${(p.dos_charge || 0).toExponential(3)} C` }
         ].forEach(c => {
             const card = document.createElement('div');
             card.className = 'stat-card';
@@ -556,6 +557,8 @@ function displayExtractedResults() {
                     <td style="padding:0.4rem 0.75rem; text-align:right;">${(s.scan_rate * 1000).toFixed(0)} mV/s</td>
                     <td style="padding:0.4rem 0.75rem; text-align:right;">${s.rmse_pct.toFixed(2)}%</td>
                     <td style="padding:0.4rem 0.75rem; text-align:right;">${s.baseline_offset.toExponential(2)} A</td>
+                    <td style="padding:0.4rem 0.75rem; text-align:right;">${(s.anodic_charge || 0).toExponential(2)} C</td>
+                    <td style="padding:0.4rem 0.75rem; text-align:right;">${(s.non_faradaic_pct || 0).toFixed(1)}%</td>
                 </tr>`).join('');
             perScan.innerHTML = `
                 <h4 style="margin-bottom:0.75rem;">Per-Scan Fit Quality</h4>
@@ -566,6 +569,8 @@ function displayExtractedResults() {
                             <th style="padding:0.4rem 0.75rem; text-align:right;">Scan Rate</th>
                             <th style="padding:0.4rem 0.75rem; text-align:right;">RMSE (% of range)</th>
                             <th style="padding:0.4rem 0.75rem; text-align:right;">Baseline Offset</th>
+                            <th style="padding:0.4rem 0.75rem; text-align:right;">Anodic Charge</th>
+                            <th style="padding:0.4rem 0.75rem; text-align:right;">Non-Faradaic</th>
                         </tr>
                     </thead>
                     <tbody>${rows}</tbody>

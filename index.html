@@ -102,10 +102,11 @@
                                         <input type="number" step="any" id="film_thickness" name="film_thickness" value="0.0001" required />
                                     </div>
                                     <div class="form-group">
-                                        <label for="use_tafel">Tafel Law Edge Fitting</label>
-                                        <select id="use_tafel" name="use_tafel" class="academic-dropdown">
-                                            <option value="true">Enabled (Default)</option>
-                                            <option value="false">Disabled</option>
+                                        <label for="background">Background Edge Tails</label>
+                                        <select id="background" name="background" class="academic-dropdown">
+                                            <option value="per_scan">Per Scan (Default)</option>
+                                            <option value="shared_k">Shared Decay Constants</option>
+                                            <option value="off">Disabled</option>
                                         </select>
                                     </div>
                                 </div>
@@ -140,7 +141,11 @@
                                             </div>
                                             <div class="form-group">
                                                 <label for="dos_smoothness">DOS Smoothing (&lambda;)</label>
-                                                <input type="number" step="any" id="dos_smoothness" name="dos_smoothness" value="2.0" min="0" />
+                                                <input type="number" step="any" id="dos_smoothness" name="dos_smoothness" value="0.01" min="0" />
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="smooth_width_V">Weight Window (V)</label>
+                                                <input type="number" step="any" id="smooth_width_V" name="smooth_width_V" value="0.35" min="0.05" />
                                             </div>
                                             <div class="form-group">
                                                 <label for="num_terms">Fourier PDE Terms</label>

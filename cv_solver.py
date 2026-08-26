@@ -22,6 +22,7 @@ import jax.numpy as jnp
 from jax.lax import scan
 
 NERNST_SHARPNESS = 38.92   # F/RT at 298 K, the ideal one-electron limit
+LOSS_SCALE = 1e4           # carries the misfit as (RMSE percent of range) squared
 
 
 # ---------------------------------------------------------------- data loading
@@ -173,7 +174,14 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     v_max = float(config["v_max"])
     num_peaks = int(config["num_peaks"])
     num_terms = int(config.get("num_terms", 50))
-    use_tafel = 1.0 if config.get("use_tafel", True) else 0.0
+    # 'per_scan' gives every scan its own background decay constants, 'shared_k'
+    # makes them global (breakdown is a property of the electrolyte, not the sweep
+    # rate), 'off' removes the tails. Removing them is not viable in practice: the
+    # residual roughly quadruples and D0 shifts by about 30%.
+    background = str(config.get("background", "per_scan")).lower()
+    if background not in ("per_scan", "shared_k", "off"):
+        background = "per_scan"
+    bg_on = 0.0 if background == "off" else 1.0
 
     NUM_GLOBALS = 5    # D0, beta_left, beta_right, V_center, sharpness
     NUM_INDEP = 5      # per scan: offset, a_right, k_right, a_left, k_left
@@ -204,6 +212,12 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
                           peak_vcrits_jax,
                           sharpness * jnp.ones_like(peak_vcrits_jax)], axis=1)
 
+    # Second-difference operator scaled so ||D2 h||^2 approximates the integral of
+    # (d2 DOS / dV2)^2. Without the spacing factors the same smoothing weight would
+    # mean something different at every value of num_peaks.
+    d2_scaled = jnp.array(np.diff(np.eye(num_peaks), n=2, axis=0)
+                          * (peak_spacing ** -1.5)) if num_peaks > 2 else None
+
     # --- load every scan ------------------------------------------------------
     loaded = []
     for s in scans:
@@ -223,9 +237,15 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     # edges during the baseline stage so the tails do not drag the offset around.
     weights_full, weights_masked = [], []
     edge = (v_max - v_min) * 0.05
+    smooth_width_v = float(config.get("smooth_width_V", 0.35))
     for d in loaded:
         cur = d["current"]
-        window = min(51, len(cur))
+        # A fixed potential width, not a fixed point count. 51 points spans 0.36 V
+        # at 80 mV/s but 1.45 V at 320 mV/s, so a fixed count silently gave each
+        # scan a different weighting.
+        pts_per_volt = len(cur) / max(np.sum(np.abs(np.diff(d["potential"]))), 1e-12)
+        window = int(round(smooth_width_v * pts_per_volt))
+        window = max(5, min(window, len(cur)))
         if window % 2 == 0:
             window -= 1
         smoothed = savgol_filter(cur, window, 3) if window > 3 else cur
@@ -280,11 +300,13 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
         sims = []
         for i in range(num_scans):
             b = NUM_GLOBALS + i * NUM_INDEP
+            # Under 'shared_k' every scan reads the first scan's decay constants.
+            kb = NUM_GLOBALS if background == "shared_k" else b
             offset = p[b] * MULT["offset"]
-            a_right = p[b + 1] * MULT["bg_a"] * use_tafel
-            k_right = p[b + 2] * MULT["bg_k"]
-            a_left = p[b + 3] * MULT["bg_a"] * use_tafel
-            k_left = p[b + 4] * MULT["bg_k"]
+            a_right = p[b + 1] * MULT["bg_a"] * bg_on
+            k_right = p[kb + 2] * MULT["bg_k"]
+            a_left = p[b + 3] * MULT["bg_a"] * bg_on
+            k_left = p[kb + 4] * MULT["bg_k"]
 
             v = pot_jax[i][1:]
             sim = run_fourier_simulation_with_data(
@@ -297,13 +319,16 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
 
             wmse = jnp.average((final - target_jax[i])**2, weights=w_list[i])
             ptp = jnp.maximum(jnp.ptp(target_jax[i]), 1e-12)
-            total_loss += jnp.sqrt(wmse) / ptp * 100.0
+            # Squared rather than root, and carried in units of (RMSE as a percent
+            # of range) squared so the loss stays of order one and the optimiser
+            # tolerances keep their meaning.
+            total_loss += wmse / ptp**2 * LOSS_SCALE
 
         # Without a smoothness penalty the heights ring from nail to nail; the
         # heights are a linear inverse problem and inherit its noise amplification.
-        roughness = (jnp.sum(jnp.diff(peak_heights, n=2)**2)
-                     / (jnp.mean(peak_heights)**2 + 1e-12))
-        total_loss = total_loss / num_scans + float(config.get("dos_smoothness", 2.0)) * roughness
+        roughness = (jnp.sum((d2_scaled @ peak_heights)**2)
+                     if d2_scaled is not None else 0.0)
+        total_loss = total_loss / num_scans + float(config.get("dos_smoothness", 0.01)) * roughness
         return total_loss, sims
 
     @jax.jit
@@ -418,15 +443,36 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
         notes.append("DOS width is on its bound. It is a smoothing width degenerate "
                      "with the height profile - read the DOS curve, not this number.")
 
+    # Charge audit. The anodic sweep integrates to a directly measurable charge, so
+    # if the non-faradaic terms carry much of it they are absorbing signal that
+    # belongs to the DOS. In practice they carry only a couple of percent.
+    dos_charge = float(thickness * np.sum(heights))
+
     scan_results = []
     for i, d in enumerate(loaded):
         sim = np.array(final_sims[i])
         tgt = d["current"][1:]
         rmse = float(100.0 * np.sqrt(np.mean((sim - tgt)**2)) / np.ptp(tgt))
+
+        b = NUM_GLOBALS + i * NUM_INDEP
+        kb = NUM_GLOBALS if background == "shared_k" else b
+        vv = d["potential"][1:]
+        bg = (x[b + 1] * MULT["bg_a"] * bg_on
+              * np.exp(x[kb + 2] * MULT["bg_k"] * (vv - v_max))
+              - x[b + 3] * MULT["bg_a"] * bg_on
+              * np.exp(-x[kb + 4] * MULT["bg_k"] * (vv - v_min)))
+        non_far = x[b] * MULT["offset"] + bg
+        dt = np.diff(d["time"])
+        fwd = np.diff(d["potential"]) > 0
+        q_meas = float(np.sum(tgt[fwd] * dt[fwd]))
+        q_non_far = float(np.sum(non_far[fwd] * dt[fwd]))
+
         scan_results.append({
             "name": d["name"],
             "scan_rate": d["scan_rate"],
             "rmse_pct": rmse,
+            "anodic_charge": q_meas,
+            "non_faradaic_pct": float(100.0 * q_non_far / q_meas) if q_meas else 0.0,
             "baseline_offset": float(x[NUM_GLOBALS + i * NUM_INDEP] * MULT["offset"]),
             "exp_potential": d["potential"][1:].tolist(),
             "exp_current": tgt.tolist(),
@@ -444,6 +490,8 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
             "dos_overlap": float(fwhm / peak_spacing),
             "num_scans": num_scans,
             "final_loss": float(res.fun),
+            "background": background,
+            "dos_charge": dos_charge,
         },
         "notes": notes,
         "scans": scan_results,

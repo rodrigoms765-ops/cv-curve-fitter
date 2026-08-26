@@ -20,6 +20,14 @@ for d in [str(ROOT_DIR), str(BACKEND_DIR)]:
 # Import solver
 from cv_solver import solve_cv, read_csv_text
 
+def _background_mode(raw_config):
+    """Background tail mode, falling back to the old use_tafel boolean."""
+    mode = str(raw_config.get("background", "")).lower()
+    if mode in ("per_scan", "shared_k", "off"):
+        return mode
+    return "per_scan" if str(raw_config.get("use_tafel", "true")).lower() == "true" else "off"
+
+
 def solve_cv_api(files, config_json: str):
     """Fit every uploaded scan at once against one shared D(V) and DOS.
 
@@ -37,13 +45,14 @@ def solve_cv_api(files, config_json: str):
             "skip_factor": int(raw_config.get("skip_factor", 2)),
             "num_peaks": int(raw_config.get("num_peaks", 20)),
             "peak_sharpness": float(raw_config.get("peak_sharpness", 38.92)),
-            "dos_smoothness": float(raw_config.get("dos_smoothness", 2.0)),
+            "dos_smoothness": float(raw_config.get("dos_smoothness", 0.01)),
             "max_iter": int(raw_config.get("max_iter", 300)),
             "tol_ftol": float(raw_config.get("tol_ftol", 1e-12)),
             "tol_gtol": float(raw_config.get("tol_gtol", 1e-10)),
             "num_terms": int(raw_config.get("num_terms", 50)),
             "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0)),
-            "use_tafel": str(raw_config.get("use_tafel", "true")).lower() == "true"
+            "smooth_width_V": float(raw_config.get("smooth_width_V", 0.35)),
+            "background": _background_mode(raw_config)
         }
         pot_col = int(raw_config.get("pot_col", 0))
         cur_col = int(raw_config.get("cur_col", 1))
@@ -74,7 +83,9 @@ def solve_cv_api(files, config_json: str):
                 "sharpness": shared["sharpness"],
                 "dos_fwhm": shared["dos_fwhm"],
                 "num_scans": shared["num_scans"],
-                "final_loss": shared["final_loss"]
+                "final_loss": shared["final_loss"],
+                "background": shared["background"],
+                "dos_charge": shared["dos_charge"]
             },
             "notes": result["notes"],
             "scans": result["scans"],

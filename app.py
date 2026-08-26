@@ -18,25 +18,29 @@ for d in [str(ROOT_DIR), str(BACKEND_DIR)]:
         sys.path.insert(0, d)
 
 # Import solver
-from cv_solver import solve_cv
+from cv_solver import solve_cv, read_csv_text
 
-def solve_cv_api(file_content: str, config_json: str):
-    """Execution point for JAX optimization."""
+def solve_cv_api(files, config_json: str):
+    """Fit every uploaded scan at once against one shared D(V) and DOS.
+
+    files: [{"name": str, "content": str, "scan_rate": float in V/s}, ...]
+    """
     try:
-        if not file_content or not file_content.strip():
-            return json.dumps({"type": "error", "message": "No CSV data file content provided. Please upload a cyclic voltammetry data file."})
+        if not files:
+            return json.dumps({"type": "error", "message": "No CSV data received. Please upload at least one cyclic voltammetry file."})
 
         raw_config = json.loads(config_json) if isinstance(config_json, str) else (config_json or {})
         config = {
-            "scan_rate_v_s": float(raw_config.get("scan_rate", 0.010)),
             "film_thickness": float(raw_config.get("film_thickness", 1e-4)),
             "v_min": float(raw_config.get("v_min", -1.0)),
             "v_max": float(raw_config.get("v_max", 1.0)),
-            "skip_factor": int(raw_config.get("skip_factor", 5)),
-            "num_peaks": int(raw_config.get("num_peaks", 50)),
-            "max_iter": int(raw_config.get("max_iter", 100)),
-            "tol_ftol": float(raw_config.get("tol_ftol", 1e-8)),
-            "tol_gtol": float(raw_config.get("tol_gtol", 1e-7)),
+            "skip_factor": int(raw_config.get("skip_factor", 2)),
+            "num_peaks": int(raw_config.get("num_peaks", 20)),
+            "peak_sharpness": float(raw_config.get("peak_sharpness", 38.92)),
+            "dos_smoothness": float(raw_config.get("dos_smoothness", 2.0)),
+            "max_iter": int(raw_config.get("max_iter", 300)),
+            "tol_ftol": float(raw_config.get("tol_ftol", 1e-12)),
+            "tol_gtol": float(raw_config.get("tol_gtol", 1e-10)),
             "num_terms": int(raw_config.get("num_terms", 50)),
             "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0)),
             "use_tafel": str(raw_config.get("use_tafel", "true")).lower() == "true"
@@ -44,28 +48,42 @@ def solve_cv_api(file_content: str, config_json: str):
         pot_col = int(raw_config.get("pot_col", 0))
         cur_col = int(raw_config.get("cur_col", 1))
 
-        df = pd.read_csv(io.StringIO(file_content), sep=None, engine='python')
-        result_dict = solve_cv(df, config, pot_col, cur_col, queue=None, loop=None)
+        scans = []
+        for f in files:
+            content = f.get("content", "")
+            if not content or not content.strip():
+                continue
+            scans.append({
+                "name": f.get("name", ""),
+                "df": read_csv_text(content),
+                "scan_rate": float(f.get("scan_rate", 0.010)),
+            })
+        if not scans:
+            return json.dumps({"type": "error", "message": "Uploaded files contained no readable CSV data."})
+
+        result = solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None)
+        shared = result["shared"]
 
         return json.dumps({
             "type": "done",
             "params": {
-                "D0": result_dict["parameters"]["diffusivity"],
-                "Vc": result_dict["parameters"]["v_center"],
-                "beta_L": result_dict["parameters"]["beta_left"],
-                "beta_R": result_dict["parameters"]["beta_right"],
-                "I_offset": result_dict["parameters"]["baseline_offset"]
+                "D0": shared["diffusivity"],
+                "Vc": shared["v_center"],
+                "beta_L": shared["beta_left"],
+                "beta_R": shared["beta_right"],
+                "sharpness": shared["sharpness"],
+                "dos_fwhm": shared["dos_fwhm"],
+                "num_scans": shared["num_scans"],
+                "final_loss": shared["final_loss"]
             },
+            "notes": result["notes"],
+            "scans": result["scans"],
             "plots": {
-                "v_plot": result_dict["plots"]["v_plot"],
-                "d_of_v": result_dict["plots"]["d_of_v"],
-                "dos_total": result_dict["plots"]["dos_total"],
-                "dos_peaks": result_dict["plots"]["dos_matrix"],
-                "exp_potential": result_dict["plots"]["exp_potential"],
-                "exp_current": result_dict["plots"]["exp_current"],
-                "sim_current": result_dict["plots"]["sim_current"]
-            },
-            "total_iterations": 100
+                "v_plot": result["plots"]["v_plot"],
+                "d_of_v": result["plots"]["d_of_v"],
+                "dos_total": result["plots"]["dos_total"],
+                "dos_peaks": result["plots"]["dos_matrix"]
+            }
         })
     except Exception as e:
         return json.dumps({
@@ -137,9 +155,16 @@ def health_info_route():
 async def api_solve_handler(request: Request):
     """Direct HTTP API for pure FastAPI (Render) deployments."""
     data = await request.json()
-    file_content = data.get("file_content", "")
     config = data.get("config", {})
-    res_str = solve_cv_api(file_content, json.dumps(config))
+    files = data.get("files")
+    if not files:
+        # Single-file callers from before the multi-scan solver.
+        content = data.get("file_content", "")
+        if content:
+            files = [{"name": data.get("file_name", "scan"),
+                      "content": content,
+                      "scan_rate": config.get("scan_rate", 0.010)}]
+    res_str = solve_cv_api(files or [], json.dumps(config))
     return JSONResponse(content=json.loads(res_str))
 
 

@@ -5,6 +5,8 @@
 let stagedFiles = [];
 let detectedColumns = [];
 let isOptimizing = false;
+// One joint fit across every staged scan, not one fit per file.
+let fitResult = null;
 
 const chartColors = [
     '#38bdf8', '#f43f5e', '#10b981', '#fbbf24', '#a855f7',
@@ -307,86 +309,95 @@ window.handleFormSubmit = async function(e) {
     config.pot_col = parseInt(document.getElementById('pot_col').value, 10);
     config.cur_col = parseInt(document.getElementById('cur_col').value, 10);
 
-    startOptimizationUI();
-    
-    for (let i = 0; i < stagedFiles.length; i++) {
-        const stageEl = document.getElementById('status-stage');
-        const detailsEl = document.getElementById('status-details');
-        if (stageEl) stageEl.innerText = `⚡ Optimizing File ${i + 1} of ${stagedFiles.length}: ${stagedFiles[i].name}`;
-        if (detailsEl) detailsEl.innerText = 'Executing multi-stage non-linear L-BFGS-B optimization on JAX auto-diff engine...';
-        
-        try {
-            const fileConfig = Object.assign({}, config);
-            const srInput = document.getElementById(`scan_rate_${i}`);
-            fileConfig.scan_rate = srInput ? parseFloat(srInput.value) : 0.010;
+    // Every scan is sent in one request: the solver fits them against a single
+    // shared D(V) and DOS, so they cannot be optimised one file at a time.
+    const files = stagedFiles.map((f, i) => {
+        const srInput = document.getElementById(`scan_rate_${i}`);
+        return {
+            name: f.name,
+            content: f.content,
+            scan_rate: srInput ? parseFloat(srInput.value) : f.scanRate
+        };
+    });
 
-            const data = await executeZeroGPUSolver(stagedFiles[i].content, fileConfig, i + 1, stagedFiles.length);
-            stagedFiles[i].results = data;
-            stagedFiles[i].status = 'done';
-            updateLivePlotProgress();
-        } catch (err) {
-            console.error(`Error processing ${stagedFiles[i].name}:`, err);
-            stagedFiles[i].status = 'error';
-            stagedFiles[i].errorMsg = err.message;
-        }
-    }
-    
+    startOptimizationUI();
+
     const stageEl = document.getElementById('status-stage');
     const detailsEl = document.getElementById('status-details');
-    if (stageEl) stageEl.innerText = '✓ Batch Physical Model Extraction Complete';
-    const successCount = stagedFiles.filter(f => f.status === 'done').length;
-    if (detailsEl) detailsEl.innerText = `Successfully processed ${successCount} of ${stagedFiles.length} files.`;
-    
+    if (detailsEl) {
+        detailsEl.innerText = `Fitting ${files.length} scan rate(s) simultaneously against one shared diffusivity and density of states...`;
+    }
+
+    try {
+        fitResult = await executeSolver(files, config);
+        stagedFiles.forEach(f => { f.status = 'done'; });
+        if (stageEl) stageEl.innerText = '✓ Shared Physical Model Extraction Complete';
+        if (detailsEl) {
+            detailsEl.innerText = `Joint fit over ${files.length} scan rate(s) complete.`;
+        }
+        updateLivePlotProgress();
+        displayExtractedResults();
+    } catch (err) {
+        console.error('Joint fit failed:', err);
+        fitResult = null;
+        stagedFiles.forEach(f => { f.status = 'error'; });
+        if (stageEl) stageEl.innerText = '✕ Optimization Failed';
+        if (detailsEl) detailsEl.innerText = err.message || 'The solver could not complete this fit.';
+    }
+
     stopOptimizationUI();
-    displayExtractedResults();
     return false;
 };
 
-// Execution via Native ZeroGPU Pipeline & Direct HTTP API
-async function executeZeroGPUSolver(fileContent, config, currentIdx, totalCount) {
-    return new Promise(async (resolve, reject) => {
-        const endpoints = [
-            window.location.origin + "/api/solve",
-            window.location.origin + "/solve",
-            "http://127.0.0.1:8000/api/solve"
-        ];
+// Single joint fit over every staged scan
+async function executeSolver(files, config) {
+    const endpoints = [
+        window.location.origin + "/api/solve",
+        window.location.origin + "/solve",
+        "http://127.0.0.1:8000/api/solve"
+    ];
 
-        const startTime = Date.now();
-        const pollInterval = setInterval(() => {
-            const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
-            const stageEl = document.getElementById('status-stage');
-            if (stageEl) stageEl.innerText = `⚡ Non-Linear Parameter Extraction File ${currentIdx}/${totalCount} (${elapsedSec}s)...`;
-        }, 500);
+    const startTime = Date.now();
+    const pollInterval = setInterval(() => {
+        const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+        const stageEl = document.getElementById('status-stage');
+        if (stageEl) stageEl.innerText = `⚡ Joint Multi-Scan Parameter Extraction (${elapsedSec}s)...`;
+    }, 500);
 
+    try {
+        let lastError = null;
         for (const endpoint of endpoints) {
             try {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 180000);
+                const timeoutId = setTimeout(() => controller.abort(), 300000);
                 const res = await fetch(endpoint, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        file_content: fileContent,
-                        config: config
-                    }),
+                    body: JSON.stringify({ files: files, config: config }),
                     signal: controller.signal
                 });
                 clearTimeout(timeoutId);
 
                 if (res.ok) {
-                    clearInterval(pollInterval);
                     const data = await res.json();
-                    if (data.type === 'error') reject(new Error(data.message || 'Solver error'));
-                    else resolve(data);
-                    return;
+                    // The solver answered. If it reports a problem that is the real
+                    // answer, so stop here rather than re-running the fit elsewhere.
+                    if (data.type === 'error') {
+                        throw Object.assign(new Error(data.message || 'Solver error'), { fromSolver: true });
+                    }
+                    return data;
                 }
+                lastError = new Error(`Solver returned HTTP ${res.status}`);
             } catch (err) {
-                console.warn(`HTTP solve attempt on ${endpoint} failed:`, err);
+                if (err && err.fromSolver) throw err;
+                lastError = err;
+                console.warn(`Solve attempt on ${endpoint} failed:`, err);
             }
         }
+        throw lastError || new Error("Could not communicate with solver engine.");
+    } finally {
         clearInterval(pollInterval);
-        reject(new Error("Could not communicate with solver engine."));
-    });
+    }
 }
 
 function startOptimizationUI() {
@@ -463,7 +474,7 @@ function renderInitialExpPlot() {
 
 function updateLivePlotProgress() {
     if (!window.Plotly) return;
-    
+
     const traces = [];
     stagedFiles.forEach((f, i) => {
         if (f.expPotential && f.expPotential.length > 0) {
@@ -475,14 +486,18 @@ function updateLivePlotProgress() {
                 name: `Exp: ${f.name}`,
                 line: { color: chartColors[i % chartColors.length], width: 2.0, dash: 'dot' }
             });
-            
-            if (f.results && f.results.plots && f.results.plots.sim_current) {
+
+            // The solver returns one entry per scan, ordered by scan rate, so match on name.
+            const s = fitResult && fitResult.scans
+                ? fitResult.scans.find(sc => sc.name === f.name)
+                : null;
+            if (s && s.sim_current) {
                 traces.push({
-                    x: f.results.plots.exp_potential || f.expPotential,
-                    y: f.results.plots.sim_current,
+                    x: s.exp_potential,
+                    y: s.sim_current,
                     mode: 'lines',
                     type: 'scatter',
-                    name: `Sim: ${f.name}`,
+                    name: `Fit: ${f.name}`,
                     line: { color: chartColors[i % chartColors.length], width: 2.8 }
                 });
             }
@@ -505,44 +520,66 @@ function displayExtractedResults() {
     if (resultsPanel) resultsPanel.classList.remove('hidden');
 
     const paramsDiv = document.getElementById('params-output');
-    if (paramsDiv) {
+    if (paramsDiv && fitResult) {
+        const p = fitResult.params || {};
         paramsDiv.innerHTML = '';
-        paramsDiv.className = ''; // Remove global grid class to prevent disorganized wrapping
-        
-        stagedFiles.filter(f => f.status === 'done' && f.results).forEach((f, i) => {
-            const params = f.results.params || {};
-            
-            const fileContainer = document.createElement('div');
-            fileContainer.style.marginBottom = '2rem';
-            
-            const header = document.createElement('h4');
-            header.style.color = chartColors[i % chartColors.length];
-            header.style.marginBottom = '1rem';
-            header.innerText = `Parameters: ${f.name}`;
-            fileContainer.appendChild(header);
+        paramsDiv.className = '';
 
-            const grid = document.createElement('div');
-            grid.className = 'stats-grid'; // Apply grid locally per file
+        // Shared parameters: one film, one diffusivity, one density of states.
+        const heading = document.createElement('h4');
+        heading.style.marginBottom = '1rem';
+        heading.innerText = `Shared across ${p.num_scans || stagedFiles.length} scan rate(s)`;
+        paramsDiv.appendChild(heading);
 
-            const cards = [
-                { label: 'Diffusivity Constant (D₀)', value: `${(params.D0 || 0).toExponential(3)} cm²/s` },
-                { label: 'Thermodynamic Potential (V_c)', value: `${(params.Vc || 0).toFixed(4)} V` },
-                { label: 'Baseline DC Offset (I_offset)', value: `${(params.I_offset || 0).toExponential(3)} A` }
-            ];
-
-            cards.forEach(c => {
-                const card = document.createElement('div');
-                card.className = 'stat-card';
-                card.innerHTML = `
-                    <span class="stat-label">${c.label}</span>
-                    <span class="stat-value">${c.value}</span>
-                `;
-                grid.appendChild(card);
-            });
-            
-            fileContainer.appendChild(grid);
-            paramsDiv.appendChild(fileContainer);
+        const grid = document.createElement('div');
+        grid.className = 'stats-grid';
+        [
+            { label: 'Diffusivity D₀ (at V_c)', value: `${(p.D0 || 0).toExponential(3)} cm²/s` },
+            { label: 'D(V) Minimum Potential (V_c)', value: `${(p.Vc || 0).toFixed(4)} V` },
+            { label: 'β left / right', value: `${(p.beta_L || 0).toFixed(3)} / ${(p.beta_R || 0).toFixed(3)}` },
+            { label: 'DOS Width (FWHM)', value: `${(p.dos_fwhm || 0).toFixed(4)} V` }
+        ].forEach(c => {
+            const card = document.createElement('div');
+            card.className = 'stat-card';
+            card.innerHTML = `<span class="stat-label">${c.label}</span><span class="stat-value">${c.value}</span>`;
+            grid.appendChild(card);
         });
+        paramsDiv.appendChild(grid);
+
+        // Per-scan: only the fit quality and the non-faradaic offset differ.
+        if (fitResult.scans && fitResult.scans.length) {
+            const perScan = document.createElement('div');
+            perScan.style.marginTop = '1.5rem';
+            let rows = fitResult.scans.map((s, i) => `
+                <tr>
+                    <td style="padding:0.4rem 0.75rem; color:${chartColors[i % chartColors.length]};">${s.name || '-'}</td>
+                    <td style="padding:0.4rem 0.75rem; text-align:right;">${(s.scan_rate * 1000).toFixed(0)} mV/s</td>
+                    <td style="padding:0.4rem 0.75rem; text-align:right;">${s.rmse_pct.toFixed(2)}%</td>
+                    <td style="padding:0.4rem 0.75rem; text-align:right;">${s.baseline_offset.toExponential(2)} A</td>
+                </tr>`).join('');
+            perScan.innerHTML = `
+                <h4 style="margin-bottom:0.75rem;">Per-Scan Fit Quality</h4>
+                <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                    <thead>
+                        <tr style="border-bottom:1px solid #334155; color:#94a3b8;">
+                            <th style="padding:0.4rem 0.75rem; text-align:left;">File</th>
+                            <th style="padding:0.4rem 0.75rem; text-align:right;">Scan Rate</th>
+                            <th style="padding:0.4rem 0.75rem; text-align:right;">RMSE (% of range)</th>
+                            <th style="padding:0.4rem 0.75rem; text-align:right;">Baseline Offset</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>`;
+            paramsDiv.appendChild(perScan);
+        }
+
+        // Bound hits and identifiability caveats reported by the solver.
+        if (fitResult.notes && fitResult.notes.length) {
+            const notes = document.createElement('div');
+            notes.style.cssText = 'margin-top:1.25rem; padding:0.85rem 1rem; border-left:3px solid #fbbf24; background:rgba(251,191,36,0.08); font-size:0.87rem; color:#fde68a;';
+            notes.innerHTML = fitResult.notes.map(n => `<div style="margin:0.2rem 0;">${n}</div>`).join('');
+            paramsDiv.appendChild(notes);
+        }
     }
 
     renderSecondaryPlots();
@@ -551,30 +588,27 @@ function displayExtractedResults() {
 function renderSecondaryPlots() {
     if (!window.Plotly) return;
 
-    const dosTraces = [];
-    const diffTraces = [];
-    
-    stagedFiles.filter(f => f.status === 'done' && f.results && f.results.plots).forEach((f, i) => {
-        const plots = f.results.plots;
-        
-        dosTraces.push({
-            x: plots.v_plot,
-            y: plots.dos_total,
-            mode: 'lines',
-            type: 'scatter',
-            name: `Total DOS: ${f.name}`,
-            line: { color: chartColors[i % chartColors.length], width: 2.8 }
-        });
-        
-        diffTraces.push({
-            x: plots.v_plot,
-            y: plots.d_of_v,
-            mode: 'lines',
-            type: 'scatter',
-            name: `D(V): ${f.name}`,
-            line: { color: chartColors[i % chartColors.length], width: 2.8 }
-        });
-    });
+    // One shared DOS and one shared D(V) for the whole batch, not one per file.
+    if (!fitResult || !fitResult.plots) return;
+    const plots = fitResult.plots;
+
+    const dosTraces = [{
+        x: plots.v_plot,
+        y: plots.dos_total,
+        mode: 'lines',
+        type: 'scatter',
+        name: 'Shared DOS',
+        line: { color: chartColors[0], width: 2.8 }
+    }];
+
+    const diffTraces = [{
+        x: plots.v_plot,
+        y: plots.d_of_v,
+        mode: 'lines',
+        type: 'scatter',
+        name: 'Shared D(V)',
+        line: { color: chartColors[1], width: 2.8 }
+    }];
 
     const dosLayout = Object.assign({}, layoutConfig, {
         title: { text: 'Extracted Density of States DOS(V)', font: { color: '#ffffff', size: 15, family: 'Inter, sans-serif' } },
@@ -601,58 +635,42 @@ function renderSecondaryPlots() {
 
 // Global Export Functions
 window.exportResultsJson = function() {
-    const batchResults = stagedFiles.filter(f => f.status === 'done').map(f => ({
-        name: f.name,
-        results: f.results
-    }));
-    if (batchResults.length === 0) return;
-    const jsonStr = JSON.stringify(batchResults, null, 2);
-    downloadFile(jsonStr, 'cv_extracted_batch_parameters.json', 'application/json');
+    if (!fitResult) return;
+    downloadFile(JSON.stringify(fitResult, null, 2),
+                 'cv_shared_fit_parameters.json', 'application/json');
 };
 
 window.exportResultsCsv = function() {
-    const doneFiles = stagedFiles.filter(f => f.status === 'done' && f.results && f.results.plots);
-    if (doneFiles.length === 0) return;
+    if (!fitResult || !fitResult.plots) return;
+    const plots = fitResult.plots;
+    const scans = fitResult.scans || [];
 
-    let rows = [];
-    
-    // Create Header Row 1 (File Names)
-    let header1 = [];
-    doneFiles.forEach(f => {
-        header1.push(`File: ${f.name}`, "", "", "", "", "");
-    });
-    rows.push(header1.join(","));
-    
-    // Create Header Row 2 (Column Names)
-    let header2 = [];
-    doneFiles.forEach(() => {
-        header2.push("Exp_V", "Exp_I", "Sim_I", "V_Plot", "DOS", "D_V");
-    });
-    rows.push(header2.join(","));
-    
-    // Find absolute max length across all files for both experimental data and plots
-    let globalMaxLen = 0;
-    doneFiles.forEach(f => {
-        const p = f.results.plots;
-        globalMaxLen = Math.max(globalMaxLen, p.exp_potential.length, p.v_plot.length);
+    // Shared columns first, then one Exp_V / Exp_I / Fit_I block per scan.
+    let header = ["V_Plot", "DOS_shared", "D_V_shared"];
+    scans.forEach(s => {
+        const tag = `${(s.scan_rate * 1000).toFixed(0)}mVs`;
+        header.push(`Exp_V_${tag}`, `Exp_I_${tag}`, `Fit_I_${tag}`);
     });
 
-    for (let i = 0; i < globalMaxLen; i++) {
-        let row = [];
-        doneFiles.forEach(f => {
-            const p = f.results.plots;
-            const expV = i < p.exp_potential.length ? p.exp_potential[i] : "";
-            const expI = i < p.exp_current.length ? p.exp_current[i] : "";
-            const simI = i < p.sim_current.length ? p.sim_current[i] : "";
-            const vp = i < p.v_plot.length ? p.v_plot[i] : "";
-            const dv = i < p.d_of_v.length ? p.d_of_v[i] : "";
-            const dos = i < p.dos_total.length ? p.dos_total[i] : "";
-            row.push(expV, expI, simI, vp, dos, dv);
+    let maxLen = plots.v_plot.length;
+    scans.forEach(s => { maxLen = Math.max(maxLen, s.exp_potential.length); });
+
+    const rows = [header.join(",")];
+    for (let i = 0; i < maxLen; i++) {
+        const row = [
+            i < plots.v_plot.length ? plots.v_plot[i] : "",
+            i < plots.dos_total.length ? plots.dos_total[i] : "",
+            i < plots.d_of_v.length ? plots.d_of_v[i] : ""
+        ];
+        scans.forEach(s => {
+            row.push(i < s.exp_potential.length ? s.exp_potential[i] : "",
+                     i < s.exp_current.length ? s.exp_current[i] : "",
+                     i < s.sim_current.length ? s.sim_current[i] : "");
         });
         rows.push(row.join(","));
     }
 
-    downloadFile(rows.join("\n"), 'cv_extracted_batch_curves.csv', 'text/csv');
+    downloadFile(rows.join("\n"), 'cv_shared_fit_curves.csv', 'text/csv');
 };
 
 function downloadFile(content, fileName, contentType) {
@@ -670,7 +688,8 @@ function downloadFile(content, fileName, contentType) {
 
 // Master Initialization Function
 window.__initCVApp = function() {
-    if (window.Plotly && expPotential.length > 0) {
+    // `expPotential` lives per staged file; there is no global of that name.
+    if (window.Plotly && stagedFiles.some(f => f.expPotential && f.expPotential.length > 0)) {
         Plotly.Plots.resize('live-chart');
     }
 };

@@ -16,7 +16,7 @@
         <div class="nav-container">
             <div class="nav-brand">
                 <span class="brand-title">Cyclic Voltammetry Analysis</span>
-                <span class="brand-subtitle">Physical Model &amp; Non-Linear JAX Parameter Extraction</span>
+                <span class="brand-subtitle">Multi-Scan Joint Fitting &amp; Non-Linear JAX Parameter Extraction</span>
             </div>
             <div class="nav-links">
                 <div class="engine-badge" id="engine-status-badge">
@@ -132,7 +132,15 @@
                                         <div class="input-grid">
                                             <div class="form-group">
                                                 <label for="num_peaks">DOS Sub-Bands (<i>N</i>)</label>
-                                                <input type="number" id="num_peaks" name="num_peaks" value="50" min="5" max="200" />
+                                                <input type="number" id="num_peaks" name="num_peaks" value="20" min="5" max="200" />
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="peak_sharpness">DOS Width (1/V)</label>
+                                                <input type="number" step="any" id="peak_sharpness" name="peak_sharpness" value="38.92" min="5" max="120" />
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="dos_smoothness">DOS Smoothing (&lambda;)</label>
+                                                <input type="number" step="any" id="dos_smoothness" name="dos_smoothness" value="2.0" min="0" />
                                             </div>
                                             <div class="form-group">
                                                 <label for="num_terms">Fourier PDE Terms</label>
@@ -140,15 +148,15 @@
                                             </div>
                                             <div class="form-group">
                                                 <label for="skip_factor">Downsample Factor</label>
-                                                <input type="number" id="skip_factor" name="skip_factor" value="5" min="1" max="50" />
+                                                <input type="number" id="skip_factor" name="skip_factor" value="2" min="1" max="50" />
                                             </div>
                                             <div class="form-group">
                                                 <label for="max_iter">L-BFGS-B Iterations</label>
-                                                <input type="number" id="max_iter" name="max_iter" value="100" min="10" max="500" />
+                                                <input type="number" id="max_iter" name="max_iter" value="300" min="10" max="2000" />
                                             </div>
                                             <div class="form-group">
                                                 <label for="tol_ftol">Tolerance (<i>f_tol</i>)</label>
-                                                <input type="number" step="any" id="tol_ftol" name="tol_ftol" value="1e-8" />
+                                                <input type="number" step="any" id="tol_ftol" name="tol_ftol" value="1e-12" />
                                             </div>
                                             <div class="form-group">
                                                 <label for="loss_weight_const">Weight Constant</label>
@@ -177,7 +185,7 @@
                             <div class="spinner hidden" id="status-spinner"></div>
                             <div>
                                 <h2 id="status-stage">System Ready</h2>
-                                <p id="status-details">Upload experimental voltammogram CSV data to begin parameter extraction.</p>
+                                <p id="status-details">Upload one CSV per scan rate. All scans are fit together against a single shared D(V) and DOS.</p>
                             </div>
                         </div>
                     </header>
@@ -193,7 +201,7 @@
                     <!-- Physical Constants & Optimization Summary -->
                     <div class="panel">
                         <header class="panel-header results-header-row">
-                            <h3>Extracted Physical Parameters</h3>
+                            <h3>Shared Physical Parameters</h3>
                             <div class="export-actions">
                                 <button type="button" class="btn-export" onclick="window.exportResultsJson && window.exportResultsJson();">
                                     Export JSON
@@ -212,7 +220,7 @@
                     <div class="secondary-charts-grid">
                         <div class="panel">
                             <header class="panel-header">
-                                <h3>Density of States DOS(V)</h3>
+                                <h3>Shared Density of States DOS(V)</h3>
                             </header>
                             <div class="panel-body chart-panel-body">
                                 <div class="chart-wrapper-diagnostic">
@@ -222,7 +230,7 @@
                         </div>
                         <div class="panel">
                             <header class="panel-header">
-                                <h3>Diffusivity Profile D(V)</h3>
+                                <h3>Shared Diffusivity Profile D(V)</h3>
                             </header>
                             <div class="panel-body chart-panel-body">
                                 <div class="chart-wrapper-diagnostic">

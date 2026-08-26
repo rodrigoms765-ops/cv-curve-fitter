@@ -20,10 +20,47 @@ for d in [str(ROOT_DIR), str(BACKEND_DIR), str(CURRENT_DIR)]:
     if d not in sys.path:
         sys.path.insert(0, d)
 
-from cv_solver import solve_cv
+from cv_solver import solve_cv, read_csv_text
 
-def compute_solve_cv(df, config, pot_col, cur_col, queue, loop):
-    solve_cv(df, config, pot_col, cur_col, queue, loop)
+# NOTE: Render runs app.py, not this module (see render.yaml). This streaming
+# variant is kept for local development only; app.js talks to app.py's plain
+# JSON endpoint and cannot parse the NDJSON body this file returns.
+
+DEFAULTS = {
+    "film_thickness": (float, 1e-4), "v_min": (float, -1.0), "v_max": (float, 1.0),
+    "skip_factor": (int, 2), "num_peaks": (int, 20), "peak_sharpness": (float, 38.92),
+    "dos_smoothness": (float, 2.0), "max_iter": (int, 300),
+    "tol_ftol": (float, 1e-12), "tol_gtol": (float, 1e-10),
+    "num_terms": (int, 50), "loss_weight_const": (float, 1.0),
+}
+
+
+def build_config(raw):
+    cfg = {k: cast(raw.get(k, dflt)) for k, (cast, dflt) in DEFAULTS.items()}
+    cfg["use_tafel"] = str(raw.get("use_tafel", "true")).lower() == "true"
+    return cfg
+
+
+def build_scans(data, raw_config):
+    """Accept the batch body, falling back to the old single-file shape."""
+    files = data.get("files")
+    if not files:
+        content = data.get("file_content", "")
+        if not content:
+            return []
+        files = [{"name": data.get("file_name", "scan"), "content": content,
+                  "scan_rate": raw_config.get("scan_rate", 0.010)}]
+    scans = []
+    for f in files:
+        if f.get("content", "").strip():
+            scans.append({"name": f.get("name", ""),
+                          "df": read_csv_text(f["content"]),
+                          "scan_rate": float(f.get("scan_rate", 0.010))})
+    return scans
+
+
+def compute_solve_cv(scans, config, pot_col, cur_col, queue, loop):
+    solve_cv(scans, config, pot_col, cur_col, queue, loop)
 
 app = FastAPI(title="CV Curve Fitting Pro - JAX Engine")
 
@@ -56,35 +93,20 @@ def health_check():
 async def api_solve_stream(request: Request):
     data = await request.json()
     raw_config = data.get("config", {})
-    file_content = data.get("file_content", "")
-    
-    if not file_content:
-        return {"type": "error", "message": "No CSV file content received. Please select and upload a CV file."}
-        
-    config = {
-        "scan_rate_v_s": float(raw_config.get("scan_rate", 0.010)),
-        "film_thickness": float(raw_config.get("film_thickness", 1e-4)),
-        "v_min": float(raw_config.get("v_min", -1.0)),
-        "v_max": float(raw_config.get("v_max", 1.0)),
-        "skip_factor": int(raw_config.get("skip_factor", 5)),
-        "num_peaks": int(raw_config.get("num_peaks", 50)),
-        "max_iter": int(raw_config.get("max_iter", 100)),
-        "tol_ftol": float(raw_config.get("tol_ftol", 1e-8)),
-        "tol_gtol": float(raw_config.get("tol_gtol", 1e-7)),
-        "num_terms": int(raw_config.get("num_terms", 50)),
-        "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0))
-    }
+    config = build_config(raw_config)
     pot_col = int(raw_config.get("pot_col", 8))
     cur_col = int(raw_config.get("cur_col", 9))
-    
-    df = pd.read_csv(io.StringIO(file_content), sep=None, engine='python')
-    
+    scans = build_scans(data, raw_config)
+
+    if not scans:
+        return {"type": "error", "message": "No CSV data received. Please upload at least one CV file."}
+
     queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
     
     def run_solver():
         try:
-            compute_solve_cv(df, config, pot_col, cur_col, queue, loop)
+            compute_solve_cv(scans, config, pot_col, cur_col, queue, loop)
         except Exception as e:
             loop.call_soon_threadsafe(
                 queue.put_nowait, {
@@ -110,35 +132,21 @@ async def handle_solver_websocket(websocket: WebSocket):
     try:
         data = await websocket.receive_json()
         raw_config = data.get("config", {})
-        file_content = data.get("file_content", "")
-        
-        if not file_content:
-            await websocket.send_json({"type": "error", "message": "No CSV file content received. Please select and upload a CV file."})
-            return
-            
-        config = {
-            "scan_rate_v_s": float(raw_config.get("scan_rate", 0.010)),
-            "film_thickness": float(raw_config.get("film_thickness", 1e-4)),
-            "v_min": float(raw_config.get("v_min", -1.0)),
-            "v_max": float(raw_config.get("v_max", 1.0)),
-            "skip_factor": int(raw_config.get("skip_factor", 5)),
-            "num_peaks": int(raw_config.get("num_peaks", 50)),
-            "max_iter": int(raw_config.get("max_iter", 100)),
-            "tol_ftol": float(raw_config.get("tol_ftol", 1e-8)),
-            "tol_gtol": float(raw_config.get("tol_gtol", 1e-7)),
-            "num_terms": int(raw_config.get("num_terms", 50)),
-            "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0))
-        }
+        config = build_config(raw_config)
         pot_col = int(raw_config.get("pot_col", 8))
         cur_col = int(raw_config.get("cur_col", 9))
-        
-        df = pd.read_csv(io.StringIO(file_content), sep=None, engine='python')
+        scans = build_scans(data, raw_config)
+
+        if not scans:
+            await websocket.send_json({"type": "error", "message": "No CSV data received. Please upload at least one CV file."})
+            return
+
         queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
         
         def run_solver():
             try:
-                compute_solve_cv(df, config, pot_col, cur_col, queue, loop)
+                compute_solve_cv(scans, config, pot_col, cur_col, queue, loop)
             except Exception as e:
                 loop.call_soon_threadsafe(
                     queue.put_nowait, {

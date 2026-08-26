@@ -16,11 +16,20 @@ The application provides a responsive, easy-to-use interface for uploading `.csv
 
 * **Physics-Based PDE Modeling:** Employs Spectral Decomposition to solve 1D ion transport and diffusion equations.
 * **Hardware-Accelerated Automatic Differentiation:** Utilizes JAX for reverse-mode gradients, allowing for rapid multi-stage parameter convergence.
+* **Joint Multi-Scan Fitting:** All uploaded scan rates are fit simultaneously against a
+  single shared $D(V)$ and $DOS(V)$; only the non-faradaic offset and background tails are
+  allowed to differ between scans. This is what makes $D_0$ identifiable at all — the DOS
+  contributes current linearly in the scan rate, while diffusion enters through the ratio of
+  sweep time to $L^2/D$, so a single scan cannot separate them.
+* **Fixed-Basis Density of States:** The DOS is expanded on a uniform grid of sigmoids with
+  one shared width, and only the heights are fitted. Floating peak positions and widths
+  independently makes the recovered DOS non-unique.
 * **Multi-Stage Optimization:**
-  * *Stage 1 (Baseline Extraction):* Identifies constant and non-faradaic background current offsets.
-  * *Stage 1.5 (Exponential Charging Tails):* Fits Tafel-like charging behaviors near electrochemical potential window boundaries.
-  * *Stage 2 (Peak Anchoring):* (Optional) Optimizes discrete potential state distributions under a constant baseline diffusivity, $D_0$.
-  * *Stage 3 (Non-Linear Global Polish):* Refines the potential-dependent diffusivity $D(V) = D_0 \exp(\beta (V - V_0)^2)$, state densities, and charging offsets.
+  * *Baseline:* constant non-faradaic offset per scan, window edges masked.
+  * *Tails:* Tafel-like charging behaviour near the potential window boundaries.
+  * *Peaks:* DOS heights and shared width, against a frozen background.
+  * *Diffusion:* $D(V) = D_0 \exp(\beta (V - V_c)^2)$, held U-shaped with $\beta \geq 0$.
+  * *Polish and restart:* joint refinement of every parameter.
 * **Interactive Diagnostic Visualizations:** Provides real-time, visualizations of the $I(V)$ curve fit overlay, extracted $D(V)$ profile, and $DOS(V)$.
 
 ## License

@@ -24,7 +24,13 @@ All supplied scan rates are fitted simultaneously against a single shared $D(V)$
 
 ### Density-of-states representation
 
-The density of states is expanded over a fixed uniform grid of sigmoidal sub-bands of common width, with only the amplitudes treated as free parameters. Permitting the position and width of each sub-band to vary independently renders the recovered distribution non-unique. A second-difference (Tikhonov) penalty is imposed on the amplitudes to suppress the noise amplification characteristic of this class of linear inverse problem.
+The density of states is expanded over a fixed uniform grid of sigmoidal sub-bands of common width, with only the amplitudes treated as free parameters. Permitting the position and width of each sub-band to vary independently renders the recovered distribution non-unique.
+
+Because the simulated current is linear in these amplitudes, their recovery constitutes a linear inverse problem and inherits its characteristic noise amplification: unregularised amplitudes oscillate between adjacent sub-bands. A second-difference (Tikhonov) penalty of weight $\lambda$ is therefore imposed,
+
+$$\mathcal{L} = \mathcal{L}_{\mathrm{misfit}} + \lambda \sum_i \left( h_{i+2} - 2h_{i+1} + h_i \right)^2 \big/ \langle h \rangle^2 ,$$
+
+where $h_i$ denotes the amplitude of sub-band $i$. The penalty is normalised by the mean amplitude so that $\lambda$ is independent of the overall current scale. Larger values yield a smoother, lower-resolution distribution; setting $\lambda = 0$ disables the regularisation. The default was selected from the corner of the corresponding L-curve, at which the oscillation is suppressed for a negligible increase in misfit.
 
 ### Diffusivity model
 
@@ -47,6 +53,36 @@ Parameters are released in stages to limit coupling between the faradaic and non
 ### Numerical considerations
 
 Downsampling is applied per scan subject to a lower bound on the retained point count, since the simulator integrates on the grid supplied by the measurement and the fastest scans are the most sparsely sampled. Parameters that converge onto a constraint boundary are reported as such, as their fitted values then reflect the imposed bound rather than the data.
+
+## Model and Solver Parameters
+
+The scan rate of each uploaded file is inferred from its filename where possible and may be corrected individually. The remaining parameters are common to the fit.
+
+### Physical
+
+| Parameter | Symbol | Default | Description |
+| --- | --- | --- | --- |
+| Film thickness | $L$ | $10^{-4}$ cm | Diffusion length of the film. The voltammogram constrains $D/L^2$, so the absolute diffusion coefficient scales with $L^2$. |
+| Potential window | $V_{\min}$, $V_{\max}$ | $-1.0$, $1.0$ V | Limits of the swept potential range; also sets the extent of the sub-band grid. |
+| Tafel edge fitting | — | enabled | Admits exponential background terms near the window boundaries. |
+
+### Density of states
+
+| Parameter | Symbol | Default | Description |
+| --- | --- | --- | --- |
+| Sub-bands | $N$ | 20 | Number of fixed sigmoidal basis functions spanning the potential window. |
+| Sub-band width | $s$ | 38.92 V⁻¹ | Shared inverse width. The default is $F/RT$ at 298 K, the ideal one-electron Nernstian limit. Constrained so that adjacent sub-bands remain overlapping. |
+| DOS smoothing | $\lambda$ | 2.0 | Weight of the second-difference penalty on the sub-band amplitudes. Increase for a smoother distribution; set to zero to disable regularisation. |
+
+### Numerical
+
+| Parameter | Symbol | Default | Description |
+| --- | --- | --- | --- |
+| Spectral terms | — | 50 | Number of eigenmodes retained in the spectral solution. |
+| Downsample factor | — | 2 | Upper bound on the per-scan sampling stride, subject to a lower bound on the retained point count. |
+| Iterations | — | 300 | Maximum L-BFGS-B iterations per stage. |
+| Tolerance | $f_{\mathrm{tol}}$ | $10^{-12}$ | Relative convergence tolerance on the objective. |
+| Weight constant | — | 1.0 | Uniform term added to the curvature- and magnitude-based residual weighting. |
 
 ## Diagnostic Output
 

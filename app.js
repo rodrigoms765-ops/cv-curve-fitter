@@ -329,6 +329,8 @@ window.handleFormSubmit = async function(e) {
     }
 
     try {
+        if (stageEl) stageEl.innerText = '⏳ Waking solver...';
+        await wakeSolver();
         fitResult = await executeSolver(files, config);
         stagedFiles.forEach(f => { f.status = 'done'; });
         if (stageEl) stageEl.innerText = '✓ Shared Physical Model Extraction Complete';
@@ -348,6 +350,28 @@ window.handleFormSubmit = async function(e) {
     stopOptimizationUI();
     return false;
 };
+
+// Render's free instances sleep when idle, and the first request also pays the
+// JAX import and JIT compile. Waking the instance separately turns one very long
+// request into two shorter ones, which is what a proxy timeout actually cares about.
+async function wakeSolver() {
+    const stageEl = document.getElementById('status-stage');
+    const started = Date.now();
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 120000);
+            const res = await fetch(window.location.origin + '/health',
+                                    { signal: controller.signal, cache: 'no-store' });
+            clearTimeout(timer);
+            if (res.ok) return true;
+        } catch (err) {
+            const secs = Math.floor((Date.now() - started) / 1000);
+            if (stageEl) stageEl.innerText = `⏳ Waking solver (${secs}s)...`;
+        }
+    }
+    return false;
+}
 
 // Single joint fit over every staged scan
 async function executeSolver(files, config) {
@@ -390,6 +414,11 @@ async function executeSolver(files, config) {
                 lastError = new Error(`Solver returned HTTP ${res.status}`);
             } catch (err) {
                 if (err && err.fromSolver) throw err;
+                if (err && err.name === 'AbortError') {
+                    const mins = ((Date.now() - startTime) / 60000).toFixed(1);
+                    err = new Error(`The solver did not respond within ${mins} minutes. `
+                        + `Try fewer scan rates, a larger downsample factor, or fewer DOS sub-bands.`);
+                }
                 lastError = err;
                 console.warn(`Solve attempt on ${endpoint} failed:`, err);
             }

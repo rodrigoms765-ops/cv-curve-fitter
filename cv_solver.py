@@ -356,7 +356,7 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
             roughness = jnp.sum((d2_scaled @ peak_heights)**2) / scale2
         else:
             roughness = 0.0
-        total_loss = total_loss / num_scans + float(config.get("dos_smoothness", 0.01)) * roughness
+        total_loss = total_loss / num_scans + float(config.get("dos_smoothness", 3.0)) * roughness
         return total_loss, sims
 
     @jax.jit

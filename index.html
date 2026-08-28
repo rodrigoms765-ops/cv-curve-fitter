@@ -145,7 +145,7 @@
                                             </div>
                                             <div class="form-group">
                                                 <label for="dos_smoothness">DOS smoothing &lambda;</label>
-                                                <input type="number" step="any" id="dos_smoothness" name="dos_smoothness" value="0.01" min="0" />
+                                                <input type="number" step="any" id="dos_smoothness" name="dos_smoothness" value="3" min="0" />
                                             </div>
                                             <div class="form-group">
                                                 <label for="smooth_width_V">Weighting window (V)</label>
@@ -200,7 +200,7 @@
                             <div id="live-chart"></div>
                         </div>
                     </div>
-                    <p class="figure-caption"><b>Figure 1.</b> Measured voltammograms and, once fitted, the simulated response overlaid. Systematic departure that grows with sweep rate indicates that the transport model, rather than the density of states, is the limiting assumption.</p>
+                    <p class="figure-caption"><b>Figure 1.</b> Measured voltammograms, with the fitted response overlaid.</p>
                 </div>
 
                 <div id="results-panel" class="results-container hidden">
@@ -227,7 +227,7 @@
                                     <div id="dos-chart"></div>
                                 </div>
                             </div>
-                            <p class="figure-caption"><b>Figure 2.</b> Density of electrochemically accessible states recovered from the joint fit, shared by every sweep rate. Read the curve rather than the individual sub-band amplitudes, which are degenerate with the smoothing weight.</p>
+                            <p class="figure-caption"><b>Figure 2.</b> Density of states, shared across all sweep rates.</p>
                         </div>
                         <div class="panel">
                             <header class="panel-header">
@@ -238,7 +238,7 @@
                                     <div id="diffusivity-chart"></div>
                                 </div>
                             </div>
-                            <p class="figure-caption"><b>Figure 3.</b> Fitted diffusivity against potential. Under the two-environment model both curves share one shape and differ by a constant factor; a flat profile is the expected outcome, the spread of transport rates being carried by the two environments instead.</p>
+                            <p class="figure-caption"><b>Figure 3.</b> Fitted diffusivity against potential.</p>
                         </div>
                     </div>
                 </div>

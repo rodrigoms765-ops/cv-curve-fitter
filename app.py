@@ -49,7 +49,7 @@ def solve_cv_api(files, config_json: str):
             "skip_factor": int(raw_config.get("skip_factor", 4)),
             "num_peaks": int(raw_config.get("num_peaks", 16)),
             "peak_sharpness": float(raw_config.get("peak_sharpness", 38.92)),
-            "dos_smoothness": float(raw_config.get("dos_smoothness", 0.01)),
+            "dos_smoothness": float(raw_config.get("dos_smoothness", 3.0)),
             "max_iter": int(raw_config.get("max_iter", 500)),
             "tol_ftol": float(raw_config.get("tol_ftol", 1e-9)),
             "tol_gtol": float(raw_config.get("tol_gtol", 1e-8)),

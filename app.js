@@ -483,13 +483,14 @@ const layoutConfig = {
     paper_bgcolor: 'transparent',
     plot_bgcolor: 'transparent',
     font: { family: 'Inter, -apple-system, sans-serif', color: INK, size: 12 },
-    margin: { l: 82, r: 24, t: 16, b: 58 },
+    margin: { l: 70, r: 24, t: 16, b: 58 },
     xaxis: {
         gridcolor: 'rgba(26, 28, 31, 0.07)',
         zerolinecolor: 'rgba(26, 28, 31, 0.22)',
         linecolor: 'rgba(26, 28, 31, 0.35)',
         tickfont: { color: INK_MUTED, size: 11 },
         titlefont: { color: INK, size: 13, family: SERIF },
+        automargin: true,
         tickangle: 0
     },
     yaxis: {
@@ -498,9 +499,13 @@ const layoutConfig = {
         linecolor: 'rgba(26, 28, 31, 0.35)',
         tickfont: { color: INK_MUTED, size: 11 },
         titlefont: { color: INK, size: 13, family: SERIF },
+        automargin: true,
         tickformat: '.2e'
     }
 };
+
+// Axis titles carry an explicit standoff so they never crowd the tick labels.
+const axTitle = text => ({ text: text, standoff: 14 });
 
 const legendConfig = {
     bgcolor: 'rgba(255, 255, 255, 0.88)',
@@ -527,8 +532,8 @@ function renderInitialExpPlot() {
     });
 
     const layout = Object.assign({}, layoutConfig, {
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V)' }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current <i>I</i> (A)' }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: axTitle('Potential <i>V</i> (V)') }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: axTitle('Current <i>I</i> (A)') }),
         showlegend: true,
         legend: Object.assign({ x: 0.02, y: 0.98 }, legendConfig)
     });
@@ -569,8 +574,8 @@ function updateLivePlotProgress() {
     });
 
     const layout = Object.assign({}, layoutConfig, {
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V)' }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current <i>I</i> (A)' }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: axTitle('Potential <i>V</i> (V)') }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: axTitle('Current <i>I</i> (A)') }),
         showlegend: true,
         legend: Object.assign({ x: 0.02, y: 0.98 }, legendConfig)
     });
@@ -604,8 +609,7 @@ function displayExtractedResults() {
             cards.push(
                 { label: 'Diffusivity, fast environment', value: `${(p.d_fast || 0).toExponential(3)} cm²/s` },
                 { label: 'Diffusivity, slow environment', value: `${(p.d_slow || 0).toExponential(3)} cm²/s` },
-                { label: 'Fast fraction of sites', value: `${(100 * (p.frac_fast || 0)).toFixed(1)}%` },
-                { label: 'Ratio, slow / fast', value: `${(p.d_ratio || 0).toPrecision(3)}` }
+                { label: 'Fast fraction of sites', value: `${(100 * (p.frac_fast || 0)).toFixed(1)}%` }
             );
         } else {
             cards.push({ label: 'Diffusivity',
@@ -614,18 +618,15 @@ function displayExtractedResults() {
         // Only meaningful when the fit found real curvature. With both betas at zero
         // D(V) is a flat line and V_c has nothing to sit on, so it drifts anywhere
         // inside its bounds - printing it then would dress noise as a measurement.
+        // V_c, the sub-band width and the integrated charge are still returned by
+        // the solver and still travel in the JSON export; they are simply not the
+        // headline numbers, and the curve below says more than V_c does.
         if (p.d_of_v_determined) {
-            cards.push(
-                { label: 'D(V) minimum, V_c', value: `${p.Vc.toFixed(4)} V` },
-                { label: 'Exponents β, left / right', value: `${p.beta_L.toFixed(3)} / ${p.beta_R.toFixed(3)}` }
-            );
+            cards.push({ label: 'Exponents β, left / right',
+                         value: `${p.beta_L.toFixed(3)} / ${p.beta_R.toFixed(3)}` });
         } else {
             cards.push({ label: 'D(V) shape', value: 'flat — not determined' });
         }
-        cards.push(
-            { label: 'DOS width (FWHM)', value: `${(p.dos_fwhm || 0).toFixed(4)} V` },
-            { label: 'DOS integrated charge', value: `${(p.dos_charge || 0).toExponential(3)} C` }
-        );
         cards.forEach(c => {
             const card = document.createElement('div');
             card.className = 'stat-card';
@@ -644,8 +645,6 @@ function displayExtractedResults() {
                     <td>${(s.scan_rate * 1000).toFixed(0)}</td>
                     <td>${s.rmse_pct.toFixed(2)}</td>
                     <td>${s.baseline_offset.toExponential(2)}</td>
-                    <td>${(s.anodic_charge || 0).toExponential(2)}</td>
-                    <td>${(s.non_faradaic_pct || 0).toFixed(1)}</td>
                 </tr>`).join('');
             perScan.innerHTML = `
                 <h4>Fit Quality by Sweep Rate</h4>
@@ -657,8 +656,6 @@ function displayExtractedResults() {
                             <th>Rate (mV s<sup>&minus;1</sup>)</th>
                             <th>RMSE (% range)</th>
                             <th>Offset (A)</th>
-                            <th>Anodic charge (C)</th>
-                            <th>Non-faradaic (%)</th>
                         </tr>
                     </thead>
                     <tbody>${rows}</tbody>
@@ -720,21 +717,21 @@ function renderSecondaryPlots() {
     }
 
     const dosLayout = Object.assign({}, layoutConfig, {
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V)', autorange: true }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'DOS (arb. units)', autorange: true, tickformat: '.2e' }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: axTitle('Potential <i>V</i> (V)'), autorange: true }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: axTitle('DOS (arb. units)'), autorange: true, tickformat: '.2e', nticks: 6 }),
         showlegend: true,
         legend: Object.assign({ orientation: 'h', y: -0.28 }, legendConfig),
-        margin: { l: 78, r: 24, t: 12, b: 92 }
+        margin: { l: 70, r: 24, t: 12, b: 92 }
     });
 
     Plotly.react('dos-chart', dosTraces, dosLayout, { responsive: true, displaylogo: false });
 
     const diffLayout = Object.assign({}, layoutConfig, {
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V)', autorange: true }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Diffusivity <i>D</i> (cm²/s)', type: 'log', autorange: true, tickformat: '.1e' }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: axTitle('Potential <i>V</i> (V)'), autorange: true }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: axTitle('Diffusivity <i>D</i> (cm²/s)'), type: 'log', autorange: true, tickformat: '.1e', nticks: 6 }),
         showlegend: true,
         legend: Object.assign({ orientation: 'h', y: -0.28 }, legendConfig),
-        margin: { l: 78, r: 24, t: 12, b: 92 }
+        margin: { l: 70, r: 24, t: 12, b: 92 }
     });
 
     Plotly.react('diffusivity-chart', diffTraces, diffLayout, { responsive: true, displaylogo: false });

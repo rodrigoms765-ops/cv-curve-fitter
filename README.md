@@ -87,7 +87,7 @@ The scan rate of each uploaded file is inferred from its filename where possible
 | --- | --- | --- | --- |
 | Sub-bands | $N$ | 16 | Number of fixed sigmoidal basis functions spanning the potential window. |
 | Sub-band width | $s$ | 38.92 V⁻¹ | Shared inverse width. The default is $F/RT$ at 298 K, the ideal one-electron Nernstian limit. Constrained so that adjacent sub-bands remain overlapping. |
-| DOS smoothing | $\lambda$ | 0.01 | Weight of the second-difference penalty on the sub-band amplitudes. Increase for a smoother distribution; set to zero to disable regularisation. |
+| DOS smoothing | $\lambda$ | 3 | Weight of the second-difference penalty on the sub-band amplitudes. Increase for a smoother distribution; set to zero to disable regularisation. |
 
 ### Numerical
 

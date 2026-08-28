@@ -385,7 +385,13 @@ async function executeSolver(files, config) {
     const pollInterval = setInterval(() => {
         const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
         const stageEl = document.getElementById('status-stage');
-        if (stageEl) stageEl.innerText = `⚡ Joint Multi-Scan Parameter Extraction (${elapsedSec}s)...`;
+        if (!stageEl) return;
+        // The free instance is roughly 30x slower than a laptop, so set expectations
+        // rather than letting a correct-but-slow fit look like a hang.
+        const hint = elapsedSec > 60
+            ? ' — the free instance is slow; several minutes is normal'
+            : '';
+        stageEl.innerText = `⚡ Joint Multi-Scan Parameter Extraction (${elapsedSec}s)...${hint}`;
     }, 500);
 
     try {
@@ -393,7 +399,11 @@ async function executeSolver(files, config) {
         for (const endpoint of endpoints) {
             try {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 300000);
+                // A four-scan two-environment fit measured 326 s on the live free
+                // instance, so the old 300 s ceiling aborted a job that was about to
+                // succeed. Render itself served that request fine; the client was the
+                // only thing giving up. Headroom here for more scans or a colder start.
+                const timeoutId = setTimeout(() => controller.abort(), 900000);
                 const res = await fetch(endpoint, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },

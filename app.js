@@ -8,10 +8,12 @@ let isOptimizing = false;
 // One joint fit across every staged scan, not one fit per file.
 let fitResult = null;
 
+// Muted, print-legible series colours. Ordered so the first few stay separable
+// in greyscale as well as in colour, which matters when a figure is reused.
 const chartColors = [
-    '#38bdf8', '#f43f5e', '#10b981', '#fbbf24', '#a855f7',
-    '#fb7185', '#34d399', '#facc15', '#e879f9', '#818cf8',
-    '#2dd4bf', '#f87171', '#c084fc', '#f472b6', '#3b82f6'
+    '#1f3a52', '#7a2e2e', '#3f7d4e', '#8a6d1f', '#4a3c6b',
+    '#2c6e75', '#a05a2c', '#5a5f66', '#63406b', '#31556b',
+    '#6b4423', '#2f6b4f', '#84343f', '#3b4a6b', '#7a6a2e'
 ];
 
 // Global Modal Handler
@@ -247,12 +249,12 @@ function addLoadedFiles(filesData) {
     const fileNameDisplay = document.getElementById('file-name-display');
     if (fileNameDisplay) {
         fileNameDisplay.innerHTML = stagedFiles.map((f, i) => `
-            <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); padding: 0.5rem 1rem; border-radius: 4px; margin-bottom: 0.5rem;">
-                <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%;">${f.name}</span>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <label for="scan_rate_${i}" style="font-size: 0.8rem; color: #cbd5e1;">Scan Rate (V/s):</label>
-                    <input type="number" step="any" id="scan_rate_${i}" value="${f.scanRate}" style="width: 80px; padding: 0.25rem; border-radius: 4px; border: 1px solid #334155; background: #1e293b; color: #fff; font-size: 0.85rem;" required />
-                </div>
+            <div class="file-row">
+                <span class="file-row-name" title="${f.name}">${f.name}</span>
+                <span class="file-row-rate">
+                    <label for="scan_rate_${i}">V s<sup>&minus;1</sup></label>
+                    <input type="number" step="any" id="scan_rate_${i}" value="${f.scanRate}" required />
+                </span>
             </div>
         `).join('');
         fileNameDisplay.classList.add('has-file');
@@ -329,11 +331,11 @@ window.handleFormSubmit = async function(e) {
     }
 
     try {
-        if (stageEl) stageEl.innerText = '⏳ Waking solver...';
+        if (stageEl) stageEl.innerText = 'Waking solver…';
         await wakeSolver();
         fitResult = await executeSolver(files, config);
         stagedFiles.forEach(f => { f.status = 'done'; });
-        if (stageEl) stageEl.innerText = '✓ Shared Physical Model Extraction Complete';
+        if (stageEl) stageEl.innerText = 'Fit Complete';
         if (detailsEl) {
             detailsEl.innerText = `Joint fit over ${files.length} scan rate(s) complete.`;
         }
@@ -343,7 +345,7 @@ window.handleFormSubmit = async function(e) {
         console.error('Joint fit failed:', err);
         fitResult = null;
         stagedFiles.forEach(f => { f.status = 'error'; });
-        if (stageEl) stageEl.innerText = '✕ Optimization Failed';
+        if (stageEl) stageEl.innerText = 'Fit Failed';
         if (detailsEl) detailsEl.innerText = err.message || 'The solver could not complete this fit.';
     }
 
@@ -389,9 +391,9 @@ async function executeSolver(files, config) {
         // The free instance is roughly 30x slower than a laptop, so set expectations
         // rather than letting a correct-but-slow fit look like a hang.
         const hint = elapsedSec > 60
-            ? ' — the free instance is slow; several minutes is normal'
+            ? '. The hosted solver is slow; several minutes is normal.'
             : '';
-        stageEl.innerText = `⚡ Joint Multi-Scan Parameter Extraction (${elapsedSec}s)...${hint}`;
+        stageEl.innerText = `Fitting — ${elapsedSec} s elapsed${hint}`;
     }, 500);
 
     try {
@@ -461,26 +463,41 @@ function stopOptimizationUI() {
     }
 }
 
-// Scientific Academic Plotly Layout Configuration (High Contrast)
+// Plot theme. The panel heading names each figure and the caption beneath it
+// carries the interpretation, so the plots themselves take no title - only axes,
+// a legend, and a faint grid.
+const INK = '#1a1c1f';
+const INK_MUTED = '#55595f';
+const SERIF = "'Source Serif 4', Georgia, serif";
+
 const layoutConfig = {
     paper_bgcolor: 'transparent',
     plot_bgcolor: 'transparent',
-    font: { family: 'Inter, -apple-system, sans-serif', color: '#f8fafc', size: 12 },
-    margin: { l: 80, r: 40, t: 60, b: 60 },
+    font: { family: 'Inter, -apple-system, sans-serif', color: INK, size: 12 },
+    margin: { l: 82, r: 24, t: 16, b: 58 },
     xaxis: {
-        gridcolor: 'rgba(255, 255, 255, 0.12)',
-        zerolinecolor: 'rgba(255, 255, 255, 0.25)',
-        tickfont: { color: '#cbd5e1', size: 12 },
-        titlefont: { color: '#ffffff', size: 14 },
+        gridcolor: 'rgba(26, 28, 31, 0.07)',
+        zerolinecolor: 'rgba(26, 28, 31, 0.22)',
+        linecolor: 'rgba(26, 28, 31, 0.35)',
+        tickfont: { color: INK_MUTED, size: 11 },
+        titlefont: { color: INK, size: 13, family: SERIF },
         tickangle: 0
     },
     yaxis: {
-        gridcolor: 'rgba(255, 255, 255, 0.12)',
-        zerolinecolor: 'rgba(255, 255, 255, 0.25)',
-        tickfont: { color: '#cbd5e1', size: 12 },
-        titlefont: { color: '#ffffff', size: 14 },
+        gridcolor: 'rgba(26, 28, 31, 0.07)',
+        zerolinecolor: 'rgba(26, 28, 31, 0.22)',
+        linecolor: 'rgba(26, 28, 31, 0.35)',
+        tickfont: { color: INK_MUTED, size: 11 },
+        titlefont: { color: INK, size: 13, family: SERIF },
         tickformat: '.2e'
     }
+};
+
+const legendConfig = {
+    bgcolor: 'rgba(255, 255, 255, 0.88)',
+    bordercolor: 'rgba(26, 28, 31, 0.18)',
+    borderwidth: 1,
+    font: { color: INK, size: 11 }
 };
 
 function renderInitialExpPlot() {
@@ -501,11 +518,10 @@ function renderInitialExpPlot() {
     });
 
     const layout = Object.assign({}, layoutConfig, {
-        title: { text: `Experimental Voltammograms (${stagedFiles.length} files)`, font: { color: '#ffffff', size: 15, family: 'Inter, sans-serif' } },
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Applied Potential <i>V</i> (V vs. Ref)' }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. reference)' }),
         yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current <i>I</i> (A)' }),
         showlegend: true,
-        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(15, 23, 42, 0.9)', font: { color: '#ffffff', size: 12 }, bordercolor: '#334155', borderwidth: 1 }
+        legend: Object.assign({ x: 0.02, y: 0.98 }, legendConfig)
     });
 
     Plotly.react('live-chart', traces, layout, { responsive: true, displaylogo: false });
@@ -544,11 +560,10 @@ function updateLivePlotProgress() {
     });
 
     const layout = Object.assign({}, layoutConfig, {
-        title: { text: 'Experimental vs. Fitted Voltammograms Overlay', font: { color: '#ffffff', size: 15, family: 'Inter, sans-serif' } },
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Applied Potential <i>V</i> (V vs. Ref)' }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. reference)' }),
         yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current <i>I</i> (A)' }),
         showlegend: true,
-        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(15, 23, 42, 0.9)', font: { color: '#ffffff', size: 12 }, bordercolor: '#334155', borderwidth: 1 }
+        legend: Object.assign({ x: 0.02, y: 0.98 }, legendConfig)
     });
 
     Plotly.react('live-chart', traces, layout, { responsive: true, displaylogo: false });
@@ -568,8 +583,9 @@ function displayExtractedResults() {
         const heading = document.createElement('h4');
         heading.style.marginBottom = '1rem';
         const twoSite = p.transport === 'two_site';
-        heading.innerText = `Shared across ${p.num_scans || stagedFiles.length} scan rate(s)`
-            + ` — ${twoSite ? 'two transport environments' : 'single diffusivity'}`;
+        const nScans = p.num_scans || stagedFiles.length;
+        heading.innerText = `Shared across ${nScans} sweep rate${nScans === 1 ? '' : 's'}`
+            + ` — ${twoSite ? 'two transport environments' : 'a single diffusivity'}`;
         paramsDiv.appendChild(heading);
 
         const grid = document.createElement('div');
@@ -577,13 +593,13 @@ function displayExtractedResults() {
         const cards = [];
         if (twoSite) {
             cards.push(
-                { label: 'D fast environment', value: `${(p.d_fast || 0).toExponential(3)} cm²/s` },
-                { label: 'D slow environment', value: `${(p.d_slow || 0).toExponential(3)} cm²/s` },
+                { label: 'Diffusivity, fast environment', value: `${(p.d_fast || 0).toExponential(3)} cm²/s` },
+                { label: 'Diffusivity, slow environment', value: `${(p.d_slow || 0).toExponential(3)} cm²/s` },
                 { label: 'Fast fraction of sites', value: `${(100 * (p.frac_fast || 0)).toFixed(1)}%` },
-                { label: 'Slow / fast ratio', value: `${(p.d_ratio || 0).toPrecision(3)}` }
+                { label: 'Ratio, slow / fast', value: `${(p.d_ratio || 0).toPrecision(3)}` }
             );
         } else {
-            cards.push({ label: 'Diffusivity D',
+            cards.push({ label: 'Diffusivity',
                          value: `${(p.d_fast || p.D0 || 0).toExponential(3)} cm²/s` });
         }
         // Only meaningful when the fit found real curvature. With both betas at zero
@@ -591,15 +607,15 @@ function displayExtractedResults() {
         // inside its bounds - printing it then would dress noise as a measurement.
         if (p.d_of_v_determined) {
             cards.push(
-                { label: 'D(V) Minimum Potential (V_c)', value: `${p.Vc.toFixed(4)} V` },
-                { label: 'β left / right', value: `${p.beta_L.toFixed(3)} / ${p.beta_R.toFixed(3)}` }
+                { label: 'D(V) minimum, V_c', value: `${p.Vc.toFixed(4)} V` },
+                { label: 'Exponents β, left / right', value: `${p.beta_L.toFixed(3)} / ${p.beta_R.toFixed(3)}` }
             );
         } else {
             cards.push({ label: 'D(V) shape', value: 'flat — not determined' });
         }
         cards.push(
-            { label: 'DOS Width (FWHM)', value: `${(p.dos_fwhm || 0).toFixed(4)} V` },
-            { label: 'DOS Integrated Charge', value: `${(p.dos_charge || 0).toExponential(3)} C` }
+            { label: 'DOS width (FWHM)', value: `${(p.dos_fwhm || 0).toFixed(4)} V` },
+            { label: 'DOS integrated charge', value: `${(p.dos_charge || 0).toExponential(3)} C` }
         );
         cards.forEach(c => {
             const card = document.createElement('div');
@@ -615,36 +631,39 @@ function displayExtractedResults() {
             perScan.style.marginTop = '1.5rem';
             let rows = fitResult.scans.map((s, i) => `
                 <tr>
-                    <td style="padding:0.4rem 0.75rem; color:${chartColors[i % chartColors.length]};">${s.name || '-'}</td>
-                    <td style="padding:0.4rem 0.75rem; text-align:right;">${(s.scan_rate * 1000).toFixed(0)} mV/s</td>
-                    <td style="padding:0.4rem 0.75rem; text-align:right;">${s.rmse_pct.toFixed(2)}%</td>
-                    <td style="padding:0.4rem 0.75rem; text-align:right;">${s.baseline_offset.toExponential(2)} A</td>
-                    <td style="padding:0.4rem 0.75rem; text-align:right;">${(s.anodic_charge || 0).toExponential(2)} C</td>
-                    <td style="padding:0.4rem 0.75rem; text-align:right;">${(s.non_faradaic_pct || 0).toFixed(1)}%</td>
+                    <td><span style="color:${chartColors[i % chartColors.length]};">&#9632;</span> ${s.name || '&mdash;'}</td>
+                    <td>${(s.scan_rate * 1000).toFixed(0)}</td>
+                    <td>${s.rmse_pct.toFixed(2)}</td>
+                    <td>${s.baseline_offset.toExponential(2)}</td>
+                    <td>${(s.anodic_charge || 0).toExponential(2)}</td>
+                    <td>${(s.non_faradaic_pct || 0).toFixed(1)}</td>
                 </tr>`).join('');
             perScan.innerHTML = `
-                <h4 style="margin-bottom:0.75rem;">Per-Scan Fit Quality</h4>
-                <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                <h4>Fit Quality by Sweep Rate</h4>
+                <div class="table-scroll">
+                <table class="data-table">
                     <thead>
-                        <tr style="border-bottom:1px solid #334155; color:#94a3b8;">
-                            <th style="padding:0.4rem 0.75rem; text-align:left;">File</th>
-                            <th style="padding:0.4rem 0.75rem; text-align:right;">Scan Rate</th>
-                            <th style="padding:0.4rem 0.75rem; text-align:right;">RMSE (% of range)</th>
-                            <th style="padding:0.4rem 0.75rem; text-align:right;">Baseline Offset</th>
-                            <th style="padding:0.4rem 0.75rem; text-align:right;">Anodic Charge</th>
-                            <th style="padding:0.4rem 0.75rem; text-align:right;">Non-Faradaic</th>
+                        <tr>
+                            <th>File</th>
+                            <th>Rate (mV s<sup>&minus;1</sup>)</th>
+                            <th>RMSE (% range)</th>
+                            <th>Offset (A)</th>
+                            <th>Anodic charge (C)</th>
+                            <th>Non-faradaic (%)</th>
                         </tr>
                     </thead>
                     <tbody>${rows}</tbody>
-                </table>`;
+                </table>
+                </div>`;
             paramsDiv.appendChild(perScan);
         }
 
         // Bound hits and identifiability caveats reported by the solver.
         if (fitResult.notes && fitResult.notes.length) {
             const notes = document.createElement('div');
-            notes.style.cssText = 'margin-top:1.25rem; padding:0.85rem 1rem; border-left:3px solid #fbbf24; background:rgba(251,191,36,0.08); font-size:0.87rem; color:#fde68a;';
-            notes.innerHTML = fitResult.notes.map(n => `<div style="margin:0.2rem 0;">${n}</div>`).join('');
+            notes.className = 'notes';
+            notes.innerHTML = '<span class="notes-title">Caveats reported by the solver</span>'
+                + fitResult.notes.map(n => `<p class="note-item">${n}</p>`).join('');
             paramsDiv.appendChild(notes);
         }
     }
@@ -692,23 +711,21 @@ function renderSecondaryPlots() {
     }
 
     const dosLayout = Object.assign({}, layoutConfig, {
-        title: { text: 'Extracted Density of States DOS(V)', font: { color: '#ffffff', size: 15, family: 'Inter, sans-serif' } },
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. Ref)', autorange: true }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'DOS (a.u.)', autorange: true, tickformat: '.2e' }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. reference)', autorange: true }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'DOS (arb. units)', autorange: true, tickformat: '.2e' }),
         showlegend: true,
-        legend: { orientation: 'h', y: -0.3, font: { color: '#ffffff', size: 11 } },
-        margin: { l: 80, r: 40, t: 60, b: 100 }
+        legend: Object.assign({ orientation: 'h', y: -0.28 }, legendConfig),
+        margin: { l: 78, r: 24, t: 12, b: 92 }
     });
 
     Plotly.react('dos-chart', dosTraces, dosLayout, { responsive: true, displaylogo: false });
 
     const diffLayout = Object.assign({}, layoutConfig, {
-        title: { text: 'Voltage-Dependent Diffusivity Profile D(V)', font: { color: '#ffffff', size: 15, family: 'Inter, sans-serif' } },
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. Ref)', autorange: true }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. reference)', autorange: true }),
         yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Diffusivity <i>D</i> (cm²/s)', type: 'log', autorange: true, tickformat: '.1e' }),
         showlegend: true,
-        legend: { orientation: 'h', y: -0.3, font: { color: '#ffffff', size: 11 } },
-        margin: { l: 80, r: 40, t: 60, b: 100 }
+        legend: Object.assign({ orientation: 'h', y: -0.28 }, legendConfig),
+        margin: { l: 78, r: 24, t: 12, b: 92 }
     });
 
     Plotly.react('diffusivity-chart', diffTraces, diffLayout, { responsive: true, displaylogo: false });

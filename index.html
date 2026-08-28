@@ -3,169 +3,166 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cyclic Voltammetry Parameter Extraction &amp; Physical Model Fitting</title>
-    <meta name="color-scheme" content="dark">
-    <style>:root { color-scheme: dark; background-color: #0b1120; }</style>
+    <title>Cyclic Voltammetry — Diffusivity and Density of States Extraction</title>
+    <meta name="color-scheme" content="light">
+    <style>:root { color-scheme: light; background-color: #fbfaf8; }</style>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" charset="utf-8"></script>
 </head>
 <body>
-    <!-- Top Academic Navigation Bar -->
-    <nav class="top-nav">
+    <header class="top-nav">
         <div class="nav-container">
             <div class="nav-brand">
                 <span class="brand-title">Cyclic Voltammetry Analysis</span>
-                <span class="brand-subtitle">Multi-Scan Joint Fitting &amp; Non-Linear JAX Parameter Extraction</span>
+                <span class="brand-subtitle">Recovery of the chemical diffusion coefficient and the density of electrochemically accessible states, by joint fitting of a one-dimensional diffusion model across all supplied sweep rates.</span>
             </div>
             <div class="nav-links">
                 <div class="engine-badge" id="engine-status-badge">
                     <span class="status-dot online" id="engine-dot"></span>
-                    <span class="engine-text" id="engine-label">JAX Optimization Engine Ready</span>
+                    <span class="engine-text" id="engine-label">Solver ready</span>
                 </div>
             </div>
         </div>
-    </nav>
+    </header>
 
-    <!-- Main Fluid Layout Container -->
     <main class="app-container">
         <div class="content-grid">
-            <!-- Left Sidebar: Parameters & Data Configuration -->
+
+            <!-- ------------------------------------------------ input column -->
             <aside class="controls-column">
                 <section class="panel control-panel">
                     <header class="panel-header">
-                        <h2>Experiment Configuration</h2>
+                        <h2>Experimental Configuration</h2>
                     </header>
                     <div class="panel-body">
                         <form id="cv-form" onsubmit="window.handleFormSubmit && window.handleFormSubmit(event);">
-                            <!-- File Upload Area -->
-                            <div class="file-upload-wrapper" id="drop-zone"
-                                 ondragover="event.preventDefault(); this.classList.add('dragover');"
-                                 ondragleave="this.classList.remove('dragover');"
-                                 ondrop="event.preventDefault(); this.classList.remove('dragover'); window.handleCSVDrop && window.handleCSVDrop(event);">
-                                <label class="section-label">Voltammetry Data File (.csv)</label>
-                                <div class="file-upload-box" onclick="document.getElementById('csv-file-input').click();">
-                                    <div class="file-icon">📄</div>
-                                    <span class="btn-file-select">Choose CSV Data</span>
-                                    <span class="drag-hint">or drop file here</span>
-                                </div>
-                                <div class="file-status-container" id="file-name-display" style="width: 100%; margin-top: 1rem; text-align: left;">
-                                    <span style="display: block; text-align: center; color: #94a3b8;">No file selected</span>
-                                </div>
-                                <input type="file" id="csv-file-input" class="hidden-file-input" accept=".csv,.txt,.dat" multiple onchange="window.handleCSVFileChange && window.handleCSVFileChange(this);" />
-                            </div>
 
-                            <!-- Generalized 2-Column Selectors -->
                             <fieldset class="form-section">
-                                <legend>Data Columns</legend>
+                                <legend>Voltammetry Data</legend>
+                                <div class="file-upload-wrapper" id="drop-zone"
+                                     ondragover="event.preventDefault(); this.classList.add('dragover');"
+                                     ondragleave="this.classList.remove('dragover');"
+                                     ondrop="event.preventDefault(); this.classList.remove('dragover'); window.handleCSVDrop && window.handleCSVDrop(event);">
+                                    <div class="file-upload-box" onclick="document.getElementById('csv-file-input').click();">
+                                        <span class="btn-file-select">Select data files</span>
+                                        <span class="drag-hint">or drop them here &middot; one file per sweep rate</span>
+                                    </div>
+                                    <div class="file-status-container" id="file-name-display">
+                                        <span>No files selected. The sweep rate of each file is read from its name where possible and may be corrected below.</span>
+                                    </div>
+                                    <input type="file" id="csv-file-input" class="hidden-file-input" accept=".csv,.txt,.dat" multiple onchange="window.handleCSVFileChange && window.handleCSVFileChange(this);" />
+                                </div>
+                            </fieldset>
+
+                            <fieldset class="form-section">
+                                <legend>Column Assignment</legend>
                                 <div class="input-grid">
                                     <div class="form-group">
-                                        <label for="pot_col">Potential (<i>V</i>) Column</label>
+                                        <label for="pot_col">Potential <i>V</i></label>
                                         <select id="pot_col" name="pot_col" class="academic-dropdown" onchange="window.updateLivePreviewFromColumns && window.updateLivePreviewFromColumns();">
                                             <option value="0">Column 0</option>
                                         </select>
                                     </div>
                                     <div class="form-group">
-                                        <label for="cur_col">Current (<i>I</i>) Column</label>
+                                        <label for="cur_col">Current <i>I</i></label>
                                         <select id="cur_col" name="cur_col" class="academic-dropdown" onchange="window.updateLivePreviewFromColumns && window.updateLivePreviewFromColumns();">
                                             <option value="1">Column 1</option>
                                         </select>
                                     </div>
                                 </div>
                                 <div class="column-meta-bar" id="column-meta-bar">
-                                    <span id="detected-columns-text">Upload a file to map columns</span>
+                                    <span id="detected-columns-text">Upload a file to assign columns.</span>
                                 </div>
-
-                                <!-- Live Data Stats Preview -->
                                 <div class="col-stats-preview" id="col-stats-preview">
                                     <div class="stat-pill">
-                                        <span class="stat-k">V Range:</span>
-                                        <span class="stat-v" id="stat-v-range">-</span>
+                                        <span class="stat-k">Range <i>V</i></span>
+                                        <span class="stat-v" id="stat-v-range">&mdash;</span>
                                     </div>
                                     <div class="stat-pill">
-                                        <span class="stat-k">I Range:</span>
-                                        <span class="stat-v" id="stat-i-range">-</span>
+                                        <span class="stat-k">Range <i>I</i></span>
+                                        <span class="stat-v" id="stat-i-range">&mdash;</span>
                                     </div>
                                     <div class="stat-pill">
-                                        <span class="stat-k">Data Points:</span>
-                                        <span class="stat-v" id="stat-points-count">-</span>
+                                        <span class="stat-k">Points</span>
+                                        <span class="stat-v" id="stat-points-count">&mdash;</span>
                                     </div>
                                 </div>
                             </fieldset>
 
-                            <!-- Physical & Experimental Parameters -->
                             <fieldset class="form-section">
-                                <legend>Physical &amp; Electrochemical Parameters</legend>
+                                <legend>Physical Model</legend>
                                 <div class="input-grid">
                                     <div class="form-group">
-                                        <label for="film_thickness">Film Thickness <i>L</i> (cm)</label>
+                                        <label for="film_thickness">Film thickness <i>L</i> (cm)</label>
                                         <input type="number" step="any" id="film_thickness" name="film_thickness" value="0.0001" required />
-                                        <span class="field-hint"><i>D</i> scales with <i>L</i><sup>2</sup>, so a thickness wrong by 2&times; moves every <i>D</i> by 4&times;. The fast fraction and slow/fast ratio do not depend on it.</span>
+                                        <span class="field-hint">The voltammogram constrains <i>D</i>/<i>L</i><sup>2</sup>, so a thickness wrong by a factor of two displaces every diffusivity by a factor of four. The fast fraction and the slow/fast ratio are independent of it.</span>
                                     </div>
                                     <div class="form-group">
-                                        <label for="transport">Transport Model</label>
+                                        <label for="transport">Transport model</label>
                                         <select id="transport" name="transport" class="academic-dropdown">
-                                            <option value="two_site">Two Environments (Default)</option>
-                                            <option value="single">Single Diffusivity</option>
+                                            <option value="two_site">Two environments</option>
+                                            <option value="single">Single diffusivity</option>
                                         </select>
-                                        <span class="field-hint">Two environments need at least 3 scan rates; below that this falls back to a single diffusivity.</span>
+                                        <span class="field-hint">A fast fraction and a slow remainder sharing one density of states. Requires at least three sweep rates; below that the solver reverts to a single diffusivity and reports having done so.</span>
                                     </div>
                                 </div>
-                                <div class="input-grid" style="margin-top: 0.65rem;">
+                                <div class="input-grid" style="margin-top: 0.9rem;">
                                     <div class="form-group">
-                                        <label for="v_min">Potential Range <i>V</i><sub>min</sub> (V)</label>
+                                        <label for="v_min">Window <i>V</i><sub>min</sub> (V)</label>
                                         <input type="number" step="any" id="v_min" name="v_min" value="-1.0" required />
                                     </div>
                                     <div class="form-group">
-                                        <label for="v_max">Potential Range <i>V</i><sub>max</sub> (V)</label>
+                                        <label for="v_max">Window <i>V</i><sub>max</sub> (V)</label>
                                         <input type="number" step="any" id="v_max" name="v_max" value="1.0" required />
                                     </div>
                                 </div>
                             </fieldset>
 
-                            <!-- Advanced Computational Hyperparameters (Collapsible) -->
                             <div class="advanced-section">
                                 <button type="button" class="advanced-toggle" id="advanced-toggle" onclick="window.toggleAdvanced && window.toggleAdvanced();" aria-expanded="false">
-                                    <span>Solver Hyperparameters &amp; JAX Grid</span>
-                                    <span class="toggle-icon" id="toggle-icon">▼</span>
+                                    <span>Basis and Solver Settings</span>
+                                    <span class="toggle-icon" id="toggle-icon">&#9662;</span>
                                 </button>
                                 <div class="advanced-content hidden" id="advanced-content">
                                     <fieldset class="form-section sub-section">
                                         <div class="input-grid">
                                             <div class="form-group">
-                                                <label for="num_peaks">DOS Sub-Bands (<i>N</i>)</label>
+                                                <label for="num_peaks">Sub-bands <i>N</i></label>
                                                 <input type="number" id="num_peaks" name="num_peaks" value="16" min="5" max="200" />
                                             </div>
                                             <div class="form-group">
-                                                <label for="peak_sharpness">DOS Width (1/V)</label>
+                                                <label for="peak_sharpness">Sub-band width (V<sup>&minus;1</sup>)</label>
                                                 <input type="number" step="any" id="peak_sharpness" name="peak_sharpness" value="38.92" min="5" max="120" />
                                             </div>
                                             <div class="form-group">
-                                                <label for="dos_smoothness">DOS Smoothing (&lambda;)</label>
+                                                <label for="dos_smoothness">DOS smoothing &lambda;</label>
                                                 <input type="number" step="any" id="dos_smoothness" name="dos_smoothness" value="0.01" min="0" />
                                             </div>
                                             <div class="form-group">
-                                                <label for="smooth_width_V">Weight Window (V)</label>
+                                                <label for="smooth_width_V">Weighting window (V)</label>
                                                 <input type="number" step="any" id="smooth_width_V" name="smooth_width_V" value="0.35" min="0.05" />
                                             </div>
                                             <div class="form-group">
-                                                <label for="num_terms">Fourier PDE Terms</label>
+                                                <label for="num_terms">Spectral terms</label>
                                                 <input type="number" id="num_terms" name="num_terms" value="20" min="10" max="200" />
                                             </div>
                                             <div class="form-group">
-                                                <label for="skip_factor">Downsample Factor</label>
+                                                <label for="skip_factor">Downsample factor</label>
                                                 <input type="number" id="skip_factor" name="skip_factor" value="4" min="1" max="50" />
                                             </div>
                                             <div class="form-group">
-                                                <label for="max_iter">L-BFGS-B Iterations</label>
+                                                <label for="max_iter">Iterations per stage</label>
                                                 <input type="number" id="max_iter" name="max_iter" value="500" min="10" max="4000" />
                                             </div>
                                             <div class="form-group">
-                                                <label for="tol_ftol">Tolerance (<i>f_tol</i>)</label>
+                                                <label for="tol_ftol">Tolerance <i>f</i><sub>tol</sub></label>
                                                 <input type="number" step="any" id="tol_ftol" name="tol_ftol" value="1e-9" />
                                             </div>
                                             <div class="form-group">
-                                                <label for="loss_weight_const">Weight Constant</label>
+                                                <label for="loss_weight_const">Weight constant</label>
                                                 <input type="number" step="any" id="loss_weight_const" name="loss_weight_const" value="1.0" />
                                             </div>
                                         </div>
@@ -173,25 +170,22 @@
                                 </div>
                             </div>
 
-                            <!-- Execution Button -->
-                            <button type="submit" id="submit-btn" class="btn-primary">
-                                Execute Optimization
-                            </button>
+                            <button type="submit" id="submit-btn" class="btn-primary">Run Joint Fit</button>
                         </form>
                     </div>
                 </section>
             </aside>
 
-            <!-- Right Main Area: Primary Plots & Diagnostics -->
+            <!-- ----------------------------------------------- output column -->
             <section class="visualizations-column">
-                <!-- Status & Primary Voltammogram Canvas -->
+
                 <div class="panel main-chart-panel">
                     <header class="panel-header status-header-row">
                         <div class="status-left">
                             <div class="spinner hidden" id="status-spinner"></div>
                             <div>
-                                <h2 id="status-stage">System Ready</h2>
-                                <p id="status-details">Upload one CSV per scan rate. All scans are fit together against a single shared D(V) and DOS.</p>
+                                <h2 id="status-stage">Awaiting Data</h2>
+                                <p id="status-details">Supply one file per sweep rate. All scans are fitted simultaneously against a single shared diffusivity and density of states, since both are properties of the film rather than of the measurement.</p>
                             </div>
                         </div>
                     </header>
@@ -200,21 +194,16 @@
                             <div id="live-chart"></div>
                         </div>
                     </div>
+                    <p class="figure-caption"><b>Figure 1.</b> Measured voltammograms and, once fitted, the simulated response overlaid. Systematic departure that grows with sweep rate indicates that the transport model, rather than the density of states, is the limiting assumption.</p>
                 </div>
 
-                <!-- Extracted Parameters & Derived Spectra -->
                 <div id="results-panel" class="results-container hidden">
-                    <!-- Physical Constants & Optimization Summary -->
                     <div class="panel">
                         <header class="panel-header results-header-row">
-                            <h3>Shared Physical Parameters</h3>
+                            <h3>Extracted Parameters</h3>
                             <div class="export-actions">
-                                <button type="button" class="btn-export" onclick="window.exportResultsJson && window.exportResultsJson();">
-                                    Export JSON
-                                </button>
-                                <button type="button" class="btn-export" onclick="window.exportResultsCsv && window.exportResultsCsv();">
-                                    Export CSV Curves
-                                </button>
+                                <button type="button" class="btn-export" onclick="window.exportResultsJson && window.exportResultsJson();">Export JSON</button>
+                                <button type="button" class="btn-export" onclick="window.exportResultsCsv && window.exportResultsCsv();">Export CSV</button>
                             </div>
                         </header>
                         <div class="panel-body">
@@ -222,27 +211,28 @@
                         </div>
                     </div>
 
-                    <!-- Secondary Physical Diagnostics: DOS(V) & D(V) -->
                     <div class="secondary-charts-grid">
                         <div class="panel">
                             <header class="panel-header">
-                                <h3>Shared Density of States DOS(V)</h3>
+                                <h3>Density of States</h3>
                             </header>
                             <div class="panel-body chart-panel-body">
                                 <div class="chart-wrapper-diagnostic">
                                     <div id="dos-chart"></div>
                                 </div>
                             </div>
+                            <p class="figure-caption"><b>Figure 2.</b> Density of electrochemically accessible states recovered from the joint fit, shared by every sweep rate. Read the curve rather than the individual sub-band amplitudes, which are degenerate with the smoothing weight.</p>
                         </div>
                         <div class="panel">
                             <header class="panel-header">
-                                <h3>Shared Diffusivity Profile D(V)</h3>
+                                <h3>Diffusivity Profile</h3>
                             </header>
                             <div class="panel-body chart-panel-body">
                                 <div class="chart-wrapper-diagnostic">
                                     <div id="diffusivity-chart"></div>
                                 </div>
                             </div>
+                            <p class="figure-caption"><b>Figure 3.</b> Fitted diffusivity against potential. Under the two-environment model both curves share one shape and differ by a constant factor; a flat profile is the expected outcome, the spread of transport rates being carried by the two environments instead.</p>
                         </div>
                     </div>
                 </div>
@@ -250,8 +240,8 @@
         </div>
     </main>
 
-    <!-- Bootstrap Trigger to ensure JS runs regardless of iframe or innerHTML injection -->
-    <img src="data:image/svg+xml;utf8,<svg/>" style="display:none" onload="window.__initCVApp && window.__initCVApp();" onerror="window.__initCVApp && window.__initCVApp();" />
+    <!-- Bootstrap trigger: runs regardless of iframe or innerHTML injection -->
+    <img src="data:image/svg+xml;utf8,<svg/>" alt="" style="display:none" onload="window.__initCVApp && window.__initCVApp();" onerror="window.__initCVApp && window.__initCVApp();" />
     <script src="app.js"></script>
 </body>
 </html>

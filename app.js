@@ -369,7 +369,7 @@ async function wakeSolver() {
             if (res.ok) return true;
         } catch (err) {
             const secs = Math.floor((Date.now() - started) / 1000);
-            if (stageEl) stageEl.innerText = `⏳ Waking solver (${secs}s)...`;
+            if (stageEl) stageEl.innerText = `Waking solver — ${secs} s elapsed`;
         }
     }
     return false;

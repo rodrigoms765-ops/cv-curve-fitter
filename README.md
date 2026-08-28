@@ -95,7 +95,7 @@ The scan rate of each uploaded file is inferred from its filename where possible
 | --- | --- | --- | --- |
 | Spectral terms | — | 20 | Number of eigenmodes retained in the spectral solution. Truncation at 20 alters the simulated current by roughly 1%, but the error is smooth and is absorbed by the sub-band amplitudes: relative to 60 terms the fitted $D$ shifts by under 1% and the per-scan residuals are unchanged. The cost is linear in this number. |
 | Downsample factor | — | 4 | Upper bound on the per-scan sampling stride, subject to a lower bound on the retained point count. |
-| Iterations | — | 1000 | Maximum L-BFGS-B iterations per stage. |
+| Iterations | — | 500 | Maximum L-BFGS-B iterations per stage. Raising this to 1000 lowers the objective by a further 0.5% and shifts the fitted fast fraction by roughly 0.06; the free hosting tier is approximately thirty times slower than local hardware, so the additional iterations carry a substantial wall-clock cost. |
 | Tolerance | $f_{\mathrm{tol}}$ | $10^{-9}$ | Relative convergence tolerance on the objective. A tolerance of $10^{-12}$ required approximately half again as many iterations while displacing the fitted diffusivity by one part in $10^5$. |
 | Weight constant | — | 1.0 | Uniform term added to the curvature- and magnitude-based residual weighting. |
 

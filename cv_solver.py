@@ -419,7 +419,7 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     # again as many polish iterations to move D by one part in 1e5, four orders
     # below the fit's own uncertainty.
     opts = {
-        "maxiter": int(config.get("max_iter", 1000)),
+        "maxiter": int(config.get("max_iter", 500)),
         "ftol": float(config.get("tol_ftol", 1e-9)),
         "gtol": float(config.get("tol_gtol", 1e-8)),
     }

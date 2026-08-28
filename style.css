@@ -129,7 +129,7 @@ body {
     align-items: start;
 }
 
-.controls-column { position: sticky; top: 1.5rem; }
+.controls-column { position: sticky; top: 1.5rem; min-width: 0; }
 
 .visualizations-column {
     display: flex;
@@ -173,6 +173,11 @@ body {
     border-top: 1px solid var(--rule-soft);
     margin: 1.6rem 0 0;
     padding: 1.2rem 0 0;
+    /* A fieldset defaults to min-inline-size: min-content and so refuses to
+       shrink below its widest unbreakable child. The staged filenames are
+       nowrap monospace, which pushed the whole section outside the panel. */
+    min-inline-size: 0;
+    min-width: 0;
 }
 
 .form-section:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
@@ -192,7 +197,7 @@ body {
 
 .input-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
     gap: 0.9rem 1rem;
 }
 
@@ -236,24 +241,68 @@ select:focus,
 
 .field-hint {
     display: block;
-    margin-top: 0.4rem;
-    font-size: 0.72rem;
-    line-height: 1.45;
+    margin-top: 0.45rem;
+    padding: 0.5rem 0.6rem;
+    background: var(--surface-sunk);
+    border-left: 2px solid var(--rule);
+    font-size: 0.74rem;
+    line-height: 1.5;
+    color: var(--ink-muted);
+}
+
+.field-hint[hidden] { display: none; }
+
+/* Label and its disclosure share a line; the note appears only on request. */
+.label-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    margin-bottom: 0.32rem;
+}
+
+.label-row label { margin-bottom: 0; }
+
+.help-toggle {
+    flex: 0 0 auto;
+    width: 15px;
+    height: 15px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--serif);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1;
     color: var(--ink-faint);
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.help-toggle:hover { color: var(--marine); border-color: var(--marine); }
+
+.help-toggle[aria-expanded="true"] {
+    color: var(--surface);
+    background: var(--marine);
+    border-color: var(--marine);
 }
 
 /* -------------------------------------------------------------- file entry */
 
-.file-upload-wrapper { display: flex; flex-direction: column; }
+.file-upload-wrapper { display: flex; flex-direction: column; min-width: 0; }
 
+/* A single quiet band rather than a large dashed drop target. */
 .file-upload-box {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 1.5rem 1rem;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0.7rem 0.85rem;
     background: var(--surface-sunk);
-    border: 1px dashed var(--rule);
+    border: 1px solid var(--rule);
     border-radius: 2px;
     cursor: pointer;
     transition: border-color 0.12s ease, background 0.12s ease;
@@ -266,56 +315,74 @@ select:focus,
     background: var(--accent-weak);
 }
 
-/* The old glyph is gone; the box reads as a labelled control instead. */
 .file-icon { display: none; }
 
 .btn-file-select {
-    font-family: var(--serif);
-    font-size: 0.98rem;
+    font-size: 0.84rem;
     font-weight: 600;
-    color: var(--ink);
+    color: var(--marine);
+    white-space: nowrap;
 }
 
-.drag-hint { font-size: 0.75rem; color: var(--ink-faint); }
+.drag-hint {
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+    text-align: right;
+    min-width: 0;
+}
 
 .hidden-file-input { display: none; }
 
-.file-status-container { font-size: 0.82rem; color: var(--ink-faint); }
+.file-status-container {
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: var(--ink-faint);
+    min-width: 0;
+}
 
-.file-status-container.has-file { color: var(--ink); }
+.file-status-container.has-file {
+    margin-top: 0.6rem;
+    color: var(--ink);
+}
 
 /* One row per staged scan: filename, and its editable sweep rate. */
 .file-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.45rem 0;
+    gap: 0.6rem;
+    padding: 0.4rem 0;
     border-bottom: 1px solid var(--rule-soft);
+    min-width: 0;
 }
 
 .file-row:last-child { border-bottom: 0; }
 
 .file-row-name {
+    flex: 1 1 auto;
     font-family: var(--mono);
-    font-size: 0.76rem;
+    font-size: 0.74rem;
     color: var(--ink);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+    /* These filenames share a long prefix and differ only in the trailing
+       sweep rate, so clip the head and keep the informative tail. */
+    direction: rtl;
+    text-align: left;
+    unicode-bidi: plaintext;
 }
 
 .file-row-rate {
     display: flex;
     align-items: center;
-    gap: 0.45rem;
-    flex-shrink: 0;
+    gap: 0.35rem;
+    flex: 0 0 auto;
 }
 
-.file-row-rate label { font-size: 0.72rem; color: var(--ink-faint); margin: 0; }
+.file-row-rate label { font-size: 0.7rem; color: var(--ink-faint); margin: 0; }
 
-.file-row-rate input { width: 82px; padding: 0.25rem 0.4rem; font-size: 0.78rem; }
+.file-row-rate input { width: 74px; padding: 0.22rem 0.35rem; font-size: 0.76rem; }
 
 /* ------------------------------------------------------- column diagnostics */
 

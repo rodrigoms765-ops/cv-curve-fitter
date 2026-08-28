@@ -48,10 +48,10 @@
                                      ondrop="event.preventDefault(); this.classList.remove('dragover'); window.handleCSVDrop && window.handleCSVDrop(event);">
                                     <div class="file-upload-box" onclick="document.getElementById('csv-file-input').click();">
                                         <span class="btn-file-select">Select data files</span>
-                                        <span class="drag-hint">or drop them here &middot; one file per sweep rate</span>
+                                        <span class="drag-hint">or drop here</span>
                                     </div>
                                     <div class="file-status-container" id="file-name-display">
-                                        <span>No files selected. The sweep rate of each file is read from its name where possible and may be corrected below.</span>
+                                        <span>One file per sweep rate. Each rate is read from the filename where possible and can be corrected once loaded.</span>
                                     </div>
                                     <input type="file" id="csv-file-input" class="hidden-file-input" accept=".csv,.txt,.dat" multiple onchange="window.handleCSVFileChange && window.handleCSVFileChange(this);" />
                                 </div>
@@ -96,17 +96,23 @@
                                 <legend>Physical Model</legend>
                                 <div class="input-grid">
                                     <div class="form-group">
-                                        <label for="film_thickness">Film thickness <i>L</i> (cm)</label>
+                                        <div class="label-row">
+                                            <label for="film_thickness">Film thickness <i>L</i> (cm)</label>
+                                            <button type="button" class="help-toggle" aria-expanded="false" aria-controls="hint-thickness" aria-label="About film thickness" onclick="window.toggleHint &amp;&amp; window.toggleHint(this, 'hint-thickness');">?</button>
+                                        </div>
                                         <input type="number" step="any" id="film_thickness" name="film_thickness" value="0.0001" required />
-                                        <span class="field-hint">The voltammogram constrains <i>D</i>/<i>L</i><sup>2</sup>, so a thickness wrong by a factor of two displaces every diffusivity by a factor of four. The fast fraction and the slow/fast ratio are independent of it.</span>
+                                        <span class="field-hint" id="hint-thickness" role="note" hidden>The voltammogram constrains <i>D</i>/<i>L</i><sup>2</sup>, so a thickness wrong by a factor of two displaces every diffusivity by a factor of four. The fast fraction and the slow/fast ratio do not depend on it.</span>
                                     </div>
                                     <div class="form-group">
-                                        <label for="transport">Transport model</label>
+                                        <div class="label-row">
+                                            <label for="transport">Transport model</label>
+                                            <button type="button" class="help-toggle" aria-expanded="false" aria-controls="hint-transport" aria-label="About the transport model" onclick="window.toggleHint &amp;&amp; window.toggleHint(this, 'hint-transport');">?</button>
+                                        </div>
                                         <select id="transport" name="transport" class="academic-dropdown">
                                             <option value="two_site">Two environments</option>
                                             <option value="single">Single diffusivity</option>
                                         </select>
-                                        <span class="field-hint">A fast fraction and a slow remainder sharing one density of states. Requires at least three sweep rates; below that the solver reverts to a single diffusivity and reports having done so.</span>
+                                        <span class="field-hint" id="hint-transport" role="note" hidden>A fast fraction and a slow remainder sharing one density of states. Needs at least three sweep rates; below that the solver reverts to a single diffusivity and says so in the results.</span>
                                     </div>
                                 </div>
                                 <div class="input-grid" style="margin-top: 0.9rem;">

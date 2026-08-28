@@ -28,6 +28,15 @@ window.toggleModal = function(modalId, show) {
     }
 };
 
+// Field notes are hidden until asked for, so the form stays readable.
+window.toggleHint = function(btn, hintId) {
+    const hint = document.getElementById(hintId);
+    if (!hint) return;
+    const show = hint.hasAttribute('hidden');
+    if (show) hint.removeAttribute('hidden'); else hint.setAttribute('hidden', '');
+    if (btn) btn.setAttribute('aria-expanded', String(show));
+};
+
 // Global Advanced Settings Toggle
 window.toggleAdvanced = function() {
     const advToggle = document.getElementById('advanced-toggle');
@@ -518,7 +527,7 @@ function renderInitialExpPlot() {
     });
 
     const layout = Object.assign({}, layoutConfig, {
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. reference)' }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V)' }),
         yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current <i>I</i> (A)' }),
         showlegend: true,
         legend: Object.assign({ x: 0.02, y: 0.98 }, legendConfig)
@@ -560,7 +569,7 @@ function updateLivePlotProgress() {
     });
 
     const layout = Object.assign({}, layoutConfig, {
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. reference)' }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V)' }),
         yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Current <i>I</i> (A)' }),
         showlegend: true,
         legend: Object.assign({ x: 0.02, y: 0.98 }, legendConfig)
@@ -711,7 +720,7 @@ function renderSecondaryPlots() {
     }
 
     const dosLayout = Object.assign({}, layoutConfig, {
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. reference)', autorange: true }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V)', autorange: true }),
         yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'DOS (arb. units)', autorange: true, tickformat: '.2e' }),
         showlegend: true,
         legend: Object.assign({ orientation: 'h', y: -0.28 }, legendConfig),
@@ -721,7 +730,7 @@ function renderSecondaryPlots() {
     Plotly.react('dos-chart', dosTraces, dosLayout, { responsive: true, displaylogo: false });
 
     const diffLayout = Object.assign({}, layoutConfig, {
-        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V vs. reference)', autorange: true }),
+        xaxis: Object.assign({}, layoutConfig.xaxis, { title: 'Potential <i>V</i> (V)', autorange: true }),
         yaxis: Object.assign({}, layoutConfig.yaxis, { title: 'Diffusivity <i>D</i> (cm²/s)', type: 'log', autorange: true, tickformat: '.1e' }),
         showlegend: true,
         legend: Object.assign({ orientation: 'h', y: -0.28 }, legendConfig),

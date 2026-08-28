@@ -30,11 +30,11 @@ The density of states is expanded over a fixed uniform grid of sigmoidal sub-ban
 
 Because the simulated current is linear in these amplitudes, their recovery constitutes a linear inverse problem and inherits its characteristic noise amplification: unregularised amplitudes oscillate between adjacent sub-bands. A second-difference (Tikhonov) penalty of weight $\lambda$ is therefore imposed,
 
-$$\mathcal{L} = \mathcal{L}_{\mathrm{misfit}} + \lambda \, (\Delta V)^{-3} \sum_i \left( h_{i+2} - 2h_{i+1} + h_i \right)^2 ,$$
+$$\mathcal{L} = \mathcal{L}_{\mathrm{misfit}} + \lambda \, (\Delta V)^{-3} \sum_i \left( h_{i+2} - 2h_{i+1} + h_i \right)^2 \big/ \langle h \rangle^2 ,$$
 
-where $h_i$ denotes the amplitude of sub-band $i$ and $\Delta V$ their spacing. The spacing factor renders the penalty an approximation to $\int (\mathrm{d}^2 DOS/\mathrm{d}V^2)^2\,\mathrm{d}V$, so that $\lambda$ carries the same meaning at any number of sub-bands. Larger values yield a smoother, lower-resolution distribution; setting $\lambda = 0$ disables the regularisation. The default was selected from the corner of the corresponding L-curve, at which the oscillation is suppressed for a negligible increase in misfit.
+where $h_i$ denotes the amplitude of sub-band $i$, $\Delta V$ their spacing, and $\langle h \rangle$ their mean. The spacing factor renders the penalty an approximation to $\int (\mathrm{d}^2 DOS/\mathrm{d}V^2)^2\,\mathrm{d}V$, so that $\lambda$ carries the same meaning at any number of sub-bands. Larger values yield a smoother, lower-resolution distribution; setting $\lambda = 0$ disables the regularisation. The default was selected from the corner of the corresponding L-curve, at which the oscillation is suppressed for a negligible increase in misfit.
 
-The penalty is not normalised by the amplitudes themselves, so $\lambda$ is not independent of the overall current scale. That scale is fixed internally from the slowest supplied scan; a given $\lambda$ therefore imposes somewhat different smoothing on datasets of differing magnitude, and is best regarded as a setting to be tuned per dataset rather than as a transferable constant.
+Division by $\langle h \rangle^2$ makes the penalty invariant under $h \mapsto ch$, and hence $\lambda$ invariant to the internal current normalisation. The amplitudes are defined relative to a scale fixed from one supplied scan and from the initial guess, and therefore depend on the assumed film thickness and on the number of sub-bands; without this division a given $\lambda$ would impose different smoothing as those settings varied. The misfit term is already scale-free, being expressed relative to the range of each measured scan, so the two contributions now share a common normalisation.
 
 ### Diffusivity model
 

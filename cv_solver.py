@@ -345,8 +345,17 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
 
         # Without a smoothness penalty the heights ring from nail to nail; the
         # heights are a linear inverse problem and inherit its noise amplification.
-        roughness = (jnp.sum((d2_scaled @ peak_heights)**2)
-                     if d2_scaled is not None else 0.0)
+        #
+        # Divided by the mean amplitude squared so that lambda is invariant under
+        # h -> c*h. The overall current scale is fixed internally from the slowest
+        # scan, so without this the same lambda smooths two datasets differently
+        # purely because their currents differ in magnitude - and the same data
+        # differently depending on which scan happened to set the scale.
+        if d2_scaled is not None:
+            scale2 = jnp.maximum(jnp.mean(peak_heights)**2, 1e-30)
+            roughness = jnp.sum((d2_scaled @ peak_heights)**2) / scale2
+        else:
+            roughness = 0.0
         total_loss = total_loss / num_scans + float(config.get("dos_smoothness", 0.01)) * roughness
         return total_loss, sims
 

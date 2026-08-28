@@ -557,18 +557,41 @@ function displayExtractedResults() {
         // Shared parameters: one film, one diffusivity, one density of states.
         const heading = document.createElement('h4');
         heading.style.marginBottom = '1rem';
-        heading.innerText = `Shared across ${p.num_scans || stagedFiles.length} scan rate(s)`;
+        const twoSite = p.transport === 'two_site';
+        heading.innerText = `Shared across ${p.num_scans || stagedFiles.length} scan rate(s)`
+            + ` — ${twoSite ? 'two transport environments' : 'single diffusivity'}`;
         paramsDiv.appendChild(heading);
 
         const grid = document.createElement('div');
         grid.className = 'stats-grid';
-        [
-            { label: 'Diffusivity D₀ (at V_c)', value: `${(p.D0 || 0).toExponential(3)} cm²/s` },
-            { label: 'D(V) Minimum Potential (V_c)', value: `${(p.Vc || 0).toFixed(4)} V` },
-            { label: 'β left / right', value: `${(p.beta_L || 0).toFixed(3)} / ${(p.beta_R || 0).toFixed(3)}` },
+        const cards = [];
+        if (twoSite) {
+            cards.push(
+                { label: 'D fast environment', value: `${(p.d_fast || 0).toExponential(3)} cm²/s` },
+                { label: 'D slow environment', value: `${(p.d_slow || 0).toExponential(3)} cm²/s` },
+                { label: 'Fast fraction of sites', value: `${(100 * (p.frac_fast || 0)).toFixed(1)}%` },
+                { label: 'Slow / fast ratio', value: `${(p.d_ratio || 0).toPrecision(3)}` }
+            );
+        } else {
+            cards.push({ label: 'Diffusivity D',
+                         value: `${(p.d_fast || p.D0 || 0).toExponential(3)} cm²/s` });
+        }
+        // Only meaningful when the fit found real curvature. With both betas at zero
+        // D(V) is a flat line and V_c has nothing to sit on, so it drifts anywhere
+        // inside its bounds - printing it then would dress noise as a measurement.
+        if (p.d_of_v_determined) {
+            cards.push(
+                { label: 'D(V) Minimum Potential (V_c)', value: `${p.Vc.toFixed(4)} V` },
+                { label: 'β left / right', value: `${p.beta_L.toFixed(3)} / ${p.beta_R.toFixed(3)}` }
+            );
+        } else {
+            cards.push({ label: 'D(V) shape', value: 'flat — not determined' });
+        }
+        cards.push(
             { label: 'DOS Width (FWHM)', value: `${(p.dos_fwhm || 0).toFixed(4)} V` },
             { label: 'DOS Integrated Charge', value: `${(p.dos_charge || 0).toExponential(3)} C` }
-        ].forEach(c => {
+        );
+        cards.forEach(c => {
             const card = document.createElement('div');
             card.className = 'stat-card';
             card.innerHTML = `<span class="stat-label">${c.label}</span><span class="stat-value">${c.value}</span>`;
@@ -635,14 +658,28 @@ function renderSecondaryPlots() {
         line: { color: chartColors[0], width: 2.8 }
     }];
 
+    const fp = (fitResult && fitResult.params) || {};
+    const fastLabel = fp.transport === 'two_site'
+        ? `Fast environment (${(100 * (fp.frac_fast || 0)).toFixed(0)}% of sites)`
+        : 'Shared D(V)';
     const diffTraces = [{
         x: plots.v_plot,
         y: plots.d_of_v,
         mode: 'lines',
         type: 'scatter',
-        name: 'Shared D(V)',
+        name: fastLabel,
         line: { color: chartColors[1], width: 2.8 }
     }];
+    if (plots.d_of_v_slow) {
+        diffTraces.push({
+            x: plots.v_plot,
+            y: plots.d_of_v_slow,
+            mode: 'lines',
+            type: 'scatter',
+            name: `Slow environment (${(100 * (1 - (fp.frac_fast || 0))).toFixed(0)}%)`,
+            line: { color: chartColors[2 % chartColors.length], width: 2.8 }
+        });
+    }
 
     const dosLayout = Object.assign({}, layoutConfig, {
         title: { text: 'Extracted Density of States DOS(V)', font: { color: '#ffffff', size: 15, family: 'Inter, sans-serif' } },
@@ -680,7 +717,9 @@ window.exportResultsCsv = function() {
     const scans = fitResult.scans || [];
 
     // Shared columns first, then one Exp_V / Exp_I / Fit_I block per scan.
-    let header = ["V_Plot", "DOS_shared", "D_V_shared"];
+    const hasSlow = !!plots.d_of_v_slow;
+    let header = ["V_Plot", "DOS_shared", hasSlow ? "D_V_fast" : "D_V_shared"];
+    if (hasSlow) header.push("D_V_slow");
     scans.forEach(s => {
         const tag = `${(s.scan_rate * 1000).toFixed(0)}mVs`;
         header.push(`Exp_V_${tag}`, `Exp_I_${tag}`, `Fit_I_${tag}`);
@@ -696,6 +735,7 @@ window.exportResultsCsv = function() {
             i < plots.dos_total.length ? plots.dos_total[i] : "",
             i < plots.d_of_v.length ? plots.d_of_v[i] : ""
         ];
+        if (hasSlow) row.push(i < plots.d_of_v_slow.length ? plots.d_of_v_slow[i] : "");
         scans.forEach(s => {
             row.push(i < s.exp_potential.length ? s.exp_potential[i] : "",
                      i < s.exp_current.length ? s.exp_current[i] : "",

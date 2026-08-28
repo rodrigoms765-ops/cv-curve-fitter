@@ -580,3 +580,12 @@ button:disabled {
 .hidden {
     display: none !important;
 }
+
+/* Inline caveat under a form field: says what a number does and does not mean. */
+.field-hint {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    color: #94a3b8;
+}

@@ -29,17 +29,18 @@ from cv_solver import solve_cv, read_csv_text
 DEFAULTS = {
     "film_thickness": (float, 1e-4), "v_min": (float, -1.0), "v_max": (float, 1.0),
     "skip_factor": (int, 2), "num_peaks": (int, 20), "peak_sharpness": (float, 38.92),
-    "dos_smoothness": (float, 0.01), "max_iter": (int, 300),
-    "tol_ftol": (float, 1e-12), "tol_gtol": (float, 1e-10),
-    "num_terms": (int, 50), "loss_weight_const": (float, 1.0),
+    "dos_smoothness": (float, 0.01), "max_iter": (int, 1000),
+    "tol_ftol": (float, 1e-9), "tol_gtol": (float, 1e-8),
+    "num_terms": (int, 20), "loss_weight_const": (float, 1.0),
 }
 
 
 def build_config(raw):
     cfg = {k: cast(raw.get(k, dflt)) for k, (cast, dflt) in DEFAULTS.items()}
-    mode = str(raw.get("background", "")).lower()
-    cfg["background"] = mode if mode in ("per_scan", "shared_k", "off") else (
-        "per_scan" if str(raw.get("use_tafel", "true")).lower() == "true" else "off")
+    # The retired 'background'/'use_tafel' settings selected exponential edge tails
+    # and are ignored. Transport is the fast/slow split instead.
+    mode = str(raw.get("transport", "")).lower()
+    cfg["transport"] = mode if mode in ("two_site", "single") else "two_site"
     cfg["smooth_width_V"] = float(raw.get("smooth_width_V", 0.35))
     return cfg
 

@@ -20,12 +20,16 @@ for d in [str(ROOT_DIR), str(BACKEND_DIR)]:
 # Import solver
 from cv_solver import solve_cv, read_csv_text
 
-def _background_mode(raw_config):
-    """Background tail mode, falling back to the old use_tafel boolean."""
-    mode = str(raw_config.get("background", "")).lower()
-    if mode in ("per_scan", "shared_k", "off"):
-        return mode
-    return "per_scan" if str(raw_config.get("use_tafel", "true")).lower() == "true" else "off"
+def _transport_mode(raw_config):
+    """Transport model, ignoring the retired background/use_tafel settings.
+
+    Older clients may still post 'background' or 'use_tafel'. Those selected
+    exponential edge tails, which are gone: the fitted decay pinned to whatever
+    limit it was given, which is the mark of a general-purpose smoother rather
+    than physics, and it was concealing a real disagreement between scan rates.
+    """
+    mode = str(raw_config.get("transport", "")).lower()
+    return mode if mode in ("two_site", "single") else "two_site"
 
 
 def solve_cv_api(files, config_json: str):
@@ -46,13 +50,13 @@ def solve_cv_api(files, config_json: str):
             "num_peaks": int(raw_config.get("num_peaks", 16)),
             "peak_sharpness": float(raw_config.get("peak_sharpness", 38.92)),
             "dos_smoothness": float(raw_config.get("dos_smoothness", 0.01)),
-            "max_iter": int(raw_config.get("max_iter", 200)),
-            "tol_ftol": float(raw_config.get("tol_ftol", 1e-12)),
-            "tol_gtol": float(raw_config.get("tol_gtol", 1e-10)),
-            "num_terms": int(raw_config.get("num_terms", 50)),
+            "max_iter": int(raw_config.get("max_iter", 1000)),
+            "tol_ftol": float(raw_config.get("tol_ftol", 1e-9)),
+            "tol_gtol": float(raw_config.get("tol_gtol", 1e-8)),
+            "num_terms": int(raw_config.get("num_terms", 20)),
             "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0)),
             "smooth_width_V": float(raw_config.get("smooth_width_V", 0.35)),
-            "background": _background_mode(raw_config)
+            "transport": _transport_mode(raw_config)
         }
         pot_col = int(raw_config.get("pot_col", 0))
         cur_col = int(raw_config.get("cur_col", 1))
@@ -76,7 +80,17 @@ def solve_cv_api(files, config_json: str):
         return json.dumps({
             "type": "done",
             "params": {
+                # D0 is kept for older clients; it is the fast environment.
                 "D0": shared["diffusivity"],
+                "transport": shared["transport"],
+                "transport_requested": shared["transport_requested"],
+                "d_fast": shared["d_fast"],
+                "d_slow": shared["d_slow"],
+                "frac_fast": shared["frac_fast"],
+                "d_ratio": shared["d_ratio"],
+                # None when D(V) came out flat, in which case these are undetermined
+                # and the UI must not present them as measured.
+                "d_of_v_determined": shared["d_of_v_determined"],
                 "Vc": shared["v_center"],
                 "beta_L": shared["beta_left"],
                 "beta_R": shared["beta_right"],
@@ -84,7 +98,7 @@ def solve_cv_api(files, config_json: str):
                 "dos_fwhm": shared["dos_fwhm"],
                 "num_scans": shared["num_scans"],
                 "final_loss": shared["final_loss"],
-                "background": shared["background"],
+                "film_thickness": shared["film_thickness"],
                 "dos_charge": shared["dos_charge"]
             },
             "notes": result["notes"],
@@ -92,6 +106,7 @@ def solve_cv_api(files, config_json: str):
             "plots": {
                 "v_plot": result["plots"]["v_plot"],
                 "d_of_v": result["plots"]["d_of_v"],
+                "d_of_v_slow": result["plots"]["d_of_v_slow"],
                 "dos_total": result["plots"]["dos_total"],
                 "dos_peaks": result["plots"]["dos_matrix"]
             }

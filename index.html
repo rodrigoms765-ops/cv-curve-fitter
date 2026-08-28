@@ -100,14 +100,15 @@
                                     <div class="form-group">
                                         <label for="film_thickness">Film Thickness <i>L</i> (cm)</label>
                                         <input type="number" step="any" id="film_thickness" name="film_thickness" value="0.0001" required />
+                                        <span class="field-hint"><i>D</i> scales with <i>L</i><sup>2</sup>, so a thickness wrong by 2&times; moves every <i>D</i> by 4&times;. The fast fraction and slow/fast ratio do not depend on it.</span>
                                     </div>
                                     <div class="form-group">
-                                        <label for="background">Background Edge Tails</label>
-                                        <select id="background" name="background" class="academic-dropdown">
-                                            <option value="per_scan">Per Scan (Default)</option>
-                                            <option value="shared_k">Shared Decay Constants</option>
-                                            <option value="off">Disabled</option>
+                                        <label for="transport">Transport Model</label>
+                                        <select id="transport" name="transport" class="academic-dropdown">
+                                            <option value="two_site">Two Environments (Default)</option>
+                                            <option value="single">Single Diffusivity</option>
                                         </select>
+                                        <span class="field-hint">Two environments need at least 3 scan rates; below that this falls back to a single diffusivity.</span>
                                     </div>
                                 </div>
                                 <div class="input-grid" style="margin-top: 0.65rem;">
@@ -149,7 +150,7 @@
                                             </div>
                                             <div class="form-group">
                                                 <label for="num_terms">Fourier PDE Terms</label>
-                                                <input type="number" id="num_terms" name="num_terms" value="50" min="10" max="200" />
+                                                <input type="number" id="num_terms" name="num_terms" value="20" min="10" max="200" />
                                             </div>
                                             <div class="form-group">
                                                 <label for="skip_factor">Downsample Factor</label>
@@ -157,11 +158,11 @@
                                             </div>
                                             <div class="form-group">
                                                 <label for="max_iter">L-BFGS-B Iterations</label>
-                                                <input type="number" id="max_iter" name="max_iter" value="200" min="10" max="2000" />
+                                                <input type="number" id="max_iter" name="max_iter" value="1000" min="10" max="4000" />
                                             </div>
                                             <div class="form-group">
                                                 <label for="tol_ftol">Tolerance (<i>f_tol</i>)</label>
-                                                <input type="number" step="any" id="tol_ftol" name="tol_ftol" value="1e-12" />
+                                                <input type="number" step="any" id="tol_ftol" name="tol_ftol" value="1e-9" />
                                             </div>
                                             <div class="form-group">
                                                 <label for="loss_weight_const">Weight Constant</label>

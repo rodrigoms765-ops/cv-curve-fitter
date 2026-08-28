@@ -1,12 +1,18 @@
 """Multi-scan CV fitting engine.
 
-One film has one diffusivity and one density of states, so every scan rate is fit
-simultaneously against a single shared D(V) and DOS. Only the non-faradaic terms
-(a DC offset and two background tails) are allowed to differ between scans.
+One film has one density of states, so every scan rate is fit simultaneously
+against a single shared DOS. Only a constant current offset differs between scans.
 
-This matters: the DOS contributes current linearly in the scan rate while diffusion
-enters through the ratio of sweep time to L^2/D. Fitting one scan alone cannot
-separate them, so a single-scan D0 is not identifiable.
+Transport is either one diffusivity or two environments - a fast fraction and a
+slow remainder sharing that same DOS. Two environments exist because one
+diffusivity cannot reconcile scans taken at different sweep rates: fitted alone,
+each scan demands its own D, rising roughly as the square root of the scan rate.
+The split costs two global parameters and no per-scan freedom, so it still has to
+hold at every rate at once. Physically it is the ordered and disordered regions of
+a semicrystalline film, which admit hydrated ions at very different rates.
+
+Fitting one scan alone cannot separate the DOS from diffusion, so a single-scan D
+is not identifiable, and two environments need more scan rates still.
 """
 
 import io
@@ -23,6 +29,7 @@ from jax.lax import scan
 
 NERNST_SHARPNESS = 38.92   # F/RT at 298 K, the ideal one-electron limit
 LOSS_SCALE = 1e4           # carries the misfit as (RMSE percent of range) squared
+MIN_SCANS_TWO_SITE = 3     # below this the fast/slow split is not identifiable
 
 
 # ---------------------------------------------------------------- data loading
@@ -173,24 +180,22 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     v_min = float(config["v_min"])
     v_max = float(config["v_max"])
     num_peaks = int(config["num_peaks"])
-    num_terms = int(config.get("num_terms", 50))
-    # 'per_scan' gives every scan its own background decay constants, 'shared_k'
-    # makes them global (breakdown is a property of the electrolyte, not the sweep
-    # rate), 'off' removes the tails. Removing them is not viable in practice: the
-    # residual roughly quadruples and D0 shifts by about 30%.
-    background = str(config.get("background", "per_scan")).lower()
-    if background not in ("per_scan", "shared_k", "off"):
-        background = "per_scan"
-    bg_on = 0.0 if background == "off" else 1.0
+    # Truncating the Fourier solution at 20 terms costs about 1% of the simulated
+    # current, but almost none of that reaches the fitted parameters: the error is
+    # smooth and the DOS amplitudes absorb it. Against 40 terms the fit moves D_fast
+    # by 0.04% and D_slow by 0.7%, leaves every per-scan RMSE unchanged, and runs
+    # about 30% faster. Cost is linear in this number.
+    num_terms = int(config.get("num_terms", 20))
+    transport_requested = str(config.get("transport", "two_site")).lower()
+    if transport_requested not in ("two_site", "single"):
+        transport_requested = "two_site"
 
-    NUM_GLOBALS = 5    # D0, beta_left, beta_right, V_center, sharpness
-    NUM_INDEP = 5      # per scan: offset, a_right, k_right, a_left, k_left
+    NUM_GLOBALS = 7    # D_fast, beta_L, beta_R, V_center, sharpness, frac_fast, d_ratio
+    NUM_INDEP = 1      # per scan: a constant current offset, nothing else
     MULT = {
         "diff": thickness**2 / 10.0,
         "beta": 1.0,
         "offset": 1e-4,
-        "bg_a": 1e-4,
-        "bg_k": 10.0,
         "sharp": NERNST_SHARPNESS,
     }
 
@@ -229,6 +234,13 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     loaded.sort(key=lambda d: d["scan_rate"])
     num_scans = len(loaded)
 
+    # The two-environment split carries three transport parameters, and nearly all
+    # the evidence separating them lives in how the response changes with sweep
+    # rate. Below three rates that evidence is not there and the optimiser will
+    # still return confident-looking numbers, so refuse rather than oblige.
+    two_site = transport_requested == "two_site" and num_scans >= MIN_SCANS_TWO_SITE
+    transport = "two_site" if two_site else "single"
+
     time_jax = [jnp.array(d["time"]) for d in loaded]
     pot_jax = [jnp.array(d["potential"]) for d in loaded]
     target_jax = [jnp.array(d["current"][1:]) for d in loaded]
@@ -263,10 +275,16 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     # --- initial guess --------------------------------------------------------
     mean_pot = float(np.mean([np.mean(d["potential"]) for d in loaded]))
     x0 = np.concatenate([
-        [1.0, 0.0, 0.0, mean_pot, sharp_init / MULT["sharp"]],
-        np.tile([0.0, 0.1, 1.0, 0.1, 1.0], num_scans),
+        [1.0, 0.0, 0.0, mean_pot, sharp_init / MULT["sharp"],
+         0.5,      # frac_fast: share of the sites in the fast environment
+         0.1],     # d_ratio: D_slow / D_fast
+        np.zeros(num_scans),
         np.ones(num_peaks),
     ])
+
+    # The offset is the one nuisance parameter left, so cap it at the largest
+    # measured current: past that it would be standing in for the signal itself.
+    offset_max = max(float(np.max(np.abs(d["current"]))) for d in loaded) / MULT["offset"]
 
     # Fix the overall current scale from the slowest scan, then set each scan's
     # starting offset so simulated and measured means agree.
@@ -292,6 +310,8 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
         beta_right = p[2] * MULT["beta"]
         v_center = p[3]
         sharpness = p[4] * MULT["sharp"]
+        frac_fast = p[5]
+        d_ratio = p[6]
 
         peak_heights = p[NUM_GLOBALS + NUM_INDEP * num_scans:]
         peaks_matrix = build_peaks_matrix(peak_heights, sharpness)
@@ -299,22 +319,21 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
         total_loss = 0.0
         sims = []
         for i in range(num_scans):
-            b = NUM_GLOBALS + i * NUM_INDEP
-            # Under 'shared_k' every scan reads the first scan's decay constants.
-            kb = NUM_GLOBALS if background == "shared_k" else b
-            offset = p[b] * MULT["offset"]
-            a_right = p[b + 1] * MULT["bg_a"] * bg_on
-            k_right = p[kb + 2] * MULT["bg_k"]
-            a_left = p[b + 3] * MULT["bg_a"] * bg_on
-            k_left = p[kb + 4] * MULT["bg_k"]
+            offset = p[NUM_GLOBALS + i * NUM_INDEP] * MULT["offset"]
 
-            v = pot_jax[i][1:]
             sim = run_fourier_simulation_with_data(
                 time_jax[i], pot_jax[i], diffusivity, beta_left, beta_right,
                 v_center, peaks_matrix, num_terms, thickness)
-            bg = (a_right * jnp.exp(k_right * (v - v_max))
-                  - a_left * jnp.exp(-k_left * (v - v_min)))
-            final = sim * calibrated_scale_jax + offset + bg
+            if two_site:
+                # Same DOS and the same D(V) shape, slower by d_ratio. The current
+                # is linear in the heights, so blending the two runs is the same as
+                # splitting every nail between a fast and a slow environment.
+                sim_slow = run_fourier_simulation_with_data(
+                    time_jax[i], pot_jax[i], diffusivity * d_ratio, beta_left,
+                    beta_right, v_center, peaks_matrix, num_terms, thickness)
+                sim = frac_fast * sim + (1.0 - frac_fast) * sim_slow
+            # Everything but the constant offset is faradaic by construction.
+            final = sim * calibrated_scale_jax + offset
             sims.append(final)
 
             wmse = jnp.average((final - target_jax[i])**2, weights=w_list[i])
@@ -343,7 +362,6 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
 
     # --- bounds ---------------------------------------------------------------
     def bounds_for(idx, val):
-        var = abs(val) * 2.0
         if idx == 0:
             return (max(1e-8, val - 5.0), val + 5.0)
         # Non-negative betas keep D(V) U-shaped. Opposite signs splice the two
@@ -356,14 +374,17 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
             return (v_min + 0.2, v_max - 0.2)
         if idx == 4:
             return (sharp_min / MULT["sharp"], sharp_max / MULT["sharp"])
+        # Held off the endpoints: at d_ratio = 1 the two environments merge and the
+        # fraction stops meaning anything, and at a fraction of 0 or 1 the ratio does.
+        if idx == 5:
+            return (0.02, 0.98) if two_site else (val, val)
+        if idx == 6:
+            return (1e-3, 0.9) if two_site else (val, val)
         if idx < NUM_GLOBALS + NUM_INDEP * num_scans:
-            off = (idx - NUM_GLOBALS) % NUM_INDEP
-            if off == 0:
-                span = var if val != 0 else 10.0
-                return (val - span, val + span)
-            if off in (1, 3):
-                return (max(1e-8, val - (var + 0.1)), val + var + 0.1)
-            return (max(0.1, val - (var + 0.5)), val + var + 0.5)
+            # Absolute, not recomputed from the current value each stage. The
+            # drifting form let the offset ratchet onto whatever limit the previous
+            # stage happened to leave, so it landed on a bound rather than being fit.
+            return (-offset_max, offset_max)
         return (0.0, None)   # nail heights; a density of states cannot go negative
 
     def staged_bounds(target, active):
@@ -372,31 +393,26 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
 
     # --- staged optimisation --------------------------------------------------
     all_idx = list(range(len(x0)))
-    idx_offset, idx_bg = [], []
-    for i in range(num_scans):
-        b = NUM_GLOBALS + i * NUM_INDEP
-        idx_offset.append(b)
-        idx_bg.extend([b + 1, b + 2, b + 3, b + 4])
+    idx_offset = [NUM_GLOBALS + i * NUM_INDEP for i in range(num_scans)]
     idx_diffusion = [0, 1, 2, 3]
     idx_peaks = list(range(NUM_GLOBALS + NUM_INDEP * num_scans, len(x0)))
 
     stages = [
         ("baseline", idx_offset, weights_masked),
-        ("tails", idx_bg, weights_full),
-        # Offset and background stay frozen so the DOS forms against a settled
-        # background instead of absorbing it.
+        # The offsets stay frozen so the DOS forms against a settled baseline
+        # instead of absorbing it.
         ("peaks", idx_peaks + [4], weights_full),
-        ("diffusion", idx_diffusion, weights_full),
+        ("diffusion", idx_diffusion + ([5, 6] if two_site else []), weights_full),
         ("polish", all_idx, weights_full),
-        # L-BFGS-B's limited-memory Hessian is stale by the end of the polish; a
-        # restart from that optimum still buys a real reduction.
-        ("restart", all_idx, weights_full),
     ]
 
+    # 1e-12 asked L-BFGS-B for twelve-digit convergence and bought nothing: half
+    # again as many polish iterations to move D by one part in 1e5, four orders
+    # below the fit's own uncertainty.
     opts = {
-        "maxiter": int(config.get("max_iter", 300)),
-        "ftol": float(config.get("tol_ftol", 1e-12)),
-        "gtol": float(config.get("tol_gtol", 1e-10)),
+        "maxiter": int(config.get("max_iter", 1000)),
+        "ftol": float(config.get("tol_ftol", 1e-9)),
+        "gtol": float(config.get("tol_gtol", 1e-8)),
     }
 
     current_x = x0
@@ -417,13 +433,22 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     beta_right = float(x[2] * MULT["beta"])
     v_center = float(x[3])
     sharpness = float(x[4] * MULT["sharp"])
+    frac_fast = float(x[5])
+    d_ratio = float(x[6])
+    d_slow = D0 * d_ratio
     fwhm = 3.5255 / sharpness
+
+    # With both betas at zero D(V) is a flat line and V_center has nothing to sit
+    # on, so it drifts anywhere inside its bounds. Reporting it then would dress a
+    # meaningless number as a measurement; the UI hides these when this is False.
+    d_of_v_determined = not (beta_left < 1e-6 and beta_right < 1e-6)
 
     _, final_sims = compute_forward_multi(jnp.array(x), weights_full)
 
     v_plot = np.linspace(v_min, v_max, 500)
     d_of_v = D0 * np.exp(np.where(v_plot < v_center, beta_left, beta_right)
                          * (v_plot - v_center)**2)
+    d_of_v_slow = (d_of_v * d_ratio) if two_site else None
 
     heights = np.asarray(x[NUM_GLOBALS + NUM_INDEP * num_scans:]) * calibrated_scale
     e = np.exp(-sharpness * (v_plot[np.newaxis, :] - peak_vcrits[:, np.newaxis]))
@@ -432,16 +457,43 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
 
     # A parameter sitting on its bound is reporting the constraint, not the data.
     notes = []
+    if transport_requested == "two_site" and not two_site:
+        notes.append(
+            f"Fell back to a single diffusivity: the fast/slow split needs at least "
+            f"{MIN_SCANS_TWO_SITE} scan rates and only {num_scans} were supplied. "
+            f"Nearly all the evidence separating the two environments is in how the "
+            f"response changes with sweep rate, so fitting them here would return "
+            f"numbers the data cannot support.")
     if num_scans < 2:
-        notes.append("Only one scan rate was fit. D0 is not identifiable from a "
+        notes.append("Only one scan rate was fit. D is not identifiable from a "
                      "single scan - the DOS and diffusion terms cannot be separated.")
-    if min(abs(v_center - (v_min + 0.2)), abs(v_center - (v_max - 0.2))) < 0.01:
+    if two_site and abs(d_ratio - 0.9) < 1e-3:
+        notes.append("The slow/fast ratio is on its upper bound, so the two "
+                     "environments have merged and the data is not resolving a split.")
+    elif two_site and d_ratio < 1.01e-3:
+        notes.append("The slow/fast ratio is on its lower bound: the slow environment "
+                     "is as slow as the model permits, so it contributes almost nothing "
+                     "over a sweep and its diffusivity is an upper limit rather than a "
+                     "measurement.")
+    if two_site and min(abs(frac_fast - 0.02), abs(frac_fast - 0.98)) < 1e-3:
+        notes.append("The fast fraction is on a bound, so one environment carries "
+                     "essentially everything and the second is not earning its place.")
+    if not d_of_v_determined:
+        notes.append(
+            "D(V) came out flat, so its shape parameters (beta and V_center) are not "
+            "determined and are not shown."
+            + (" Under the two-environment model that is the expected outcome - the"
+               " spread of transport rates is carried by the two environments rather"
+               " than by curvature in D(V)." if two_site else ""))
+    elif min(abs(v_center - (v_min + 0.2)), abs(v_center - (v_max - 0.2))) < 0.01:
         notes.append("V_center is on its bound, so the data is not locating the D(V) minimum.")
-    if beta_left < 1e-6 or beta_right < 1e-6:
-        notes.append("A beta is zero, so D(V) is flat on that side of V_center.")
     if abs(sharpness - sharp_max) < 0.01 * sharp_max or abs(sharpness - sharp_min) < 0.01 * sharp_min:
         notes.append("DOS width is on its bound. It is a smoothing width degenerate "
                      "with the height profile - read the DOS curve, not this number.")
+    notes.append(
+        "D scales with the square of the film thickness, which is an input here, not "
+        f"a measurement: at L = {thickness:.3g} cm, a thickness wrong by 2x moves every "
+        "D by 4x. The fast fraction and the slow/fast ratio do not depend on it.")
 
     # Charge audit. The anodic sweep integrates to a directly measurable charge, so
     # if the non-faradaic terms carry much of it they are absorbing signal that
@@ -454,18 +506,11 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
         tgt = d["current"][1:]
         rmse = float(100.0 * np.sqrt(np.mean((sim - tgt)**2)) / np.ptp(tgt))
 
-        b = NUM_GLOBALS + i * NUM_INDEP
-        kb = NUM_GLOBALS if background == "shared_k" else b
-        vv = d["potential"][1:]
-        bg = (x[b + 1] * MULT["bg_a"] * bg_on
-              * np.exp(x[kb + 2] * MULT["bg_k"] * (vv - v_max))
-              - x[b + 3] * MULT["bg_a"] * bg_on
-              * np.exp(-x[kb + 4] * MULT["bg_k"] * (vv - v_min)))
-        non_far = x[b] * MULT["offset"] + bg
+        offset = float(x[NUM_GLOBALS + i * NUM_INDEP] * MULT["offset"])
         dt = np.diff(d["time"])
         fwd = np.diff(d["potential"]) > 0
         q_meas = float(np.sum(tgt[fwd] * dt[fwd]))
-        q_non_far = float(np.sum(non_far[fwd] * dt[fwd]))
+        q_non_far = float(offset * np.sum(dt[fwd]))
 
         scan_results.append({
             "name": d["name"],
@@ -473,7 +518,7 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
             "rmse_pct": rmse,
             "anodic_charge": q_meas,
             "non_faradaic_pct": float(100.0 * q_non_far / q_meas) if q_meas else 0.0,
-            "baseline_offset": float(x[NUM_GLOBALS + i * NUM_INDEP] * MULT["offset"]),
+            "baseline_offset": offset,
             "exp_potential": d["potential"][1:].tolist(),
             "exp_current": tgt.tolist(),
             "sim_current": sim.tolist(),
@@ -481,16 +526,25 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
 
     result_data = {
         "shared": {
+            "transport": transport,
+            "transport_requested": transport_requested,
+            # Kept as the headline diffusivity for older callers; under two_site it
+            # is the fast environment.
             "diffusivity": D0,
-            "beta_left": beta_left,
-            "beta_right": beta_right,
-            "v_center": v_center,
+            "d_fast": D0,
+            "d_slow": d_slow if two_site else None,
+            "frac_fast": frac_fast if two_site else None,
+            "d_ratio": d_ratio if two_site else None,
+            "d_of_v_determined": d_of_v_determined,
+            "beta_left": beta_left if d_of_v_determined else None,
+            "beta_right": beta_right if d_of_v_determined else None,
+            "v_center": v_center if d_of_v_determined else None,
             "sharpness": sharpness,
             "dos_fwhm": float(fwhm),
             "dos_overlap": float(fwhm / peak_spacing),
             "num_scans": num_scans,
             "final_loss": float(res.fun),
-            "background": background,
+            "film_thickness": thickness,
             "dos_charge": dos_charge,
         },
         "notes": notes,
@@ -498,6 +552,7 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
         "plots": {
             "v_plot": v_plot.tolist(),
             "d_of_v": d_of_v.tolist(),
+            "d_of_v_slow": d_of_v_slow.tolist() if d_of_v_slow is not None else None,
             "dos_total": dos_total.tolist(),
             "dos_matrix": dos_matrix.T.tolist(),
         },

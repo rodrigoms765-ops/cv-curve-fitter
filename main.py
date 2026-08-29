@@ -28,8 +28,8 @@ from cv_solver import solve_cv, read_csv_text
 
 DEFAULTS = {
     "film_thickness": (float, 1e-4), "v_min": (float, -1.0), "v_max": (float, 1.0),
-    "skip_factor": (int, 2), "num_peaks": (int, 20), "peak_sharpness": (float, 38.92),
-    "dos_smoothness": (float, 3.0), "max_iter": (int, 500),
+    "skip_factor": (int, 2), "num_peaks": (int, 50), "peak_sharpness": (float, 38.92),
+    "dos_smoothness": (float, 0.01), "max_iter": (int, 500),
     "tol_ftol": (float, 1e-9), "tol_gtol": (float, 1e-8),
     "num_terms": (int, 20), "loss_weight_const": (float, 1.0),
 }

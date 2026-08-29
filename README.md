@@ -32,7 +32,7 @@ Because the simulated current is linear in these amplitudes, their recovery cons
 
 $$\mathcal{L} = \mathcal{L}_{\mathrm{misfit}} + \lambda \, (\Delta V)^{-3} \sum_i \left( h_{i+2} - 2h_{i+1} + h_i \right)^2 \big/ \langle h \rangle^2 ,$$
 
-where $h_i$ denotes the amplitude of sub-band $i$, $\Delta V$ their spacing, and $\langle h \rangle$ their mean. The spacing factor renders the penalty an approximation to $\int (\mathrm{d}^2 DOS/\mathrm{d}V^2)^2\,\mathrm{d}V$, so that $\lambda$ carries the same meaning at any number of sub-bands. Larger values yield a smoother, lower-resolution distribution; setting $\lambda = 0$ disables the regularisation. The default was selected from the corner of the corresponding L-curve, at which the oscillation is suppressed for a negligible increase in misfit.
+where $h_i$ denotes the amplitude of sub-band $i$, $\Delta V$ their spacing, and $\langle h \rangle$ their mean. The spacing factor renders the penalty an approximation to $\int (\mathrm{d}^2 DOS/\mathrm{d}V^2)^2\,\mathrm{d}V$, so that $\lambda$ carries the same meaning at any number of sub-bands. Larger values yield a smoother, lower-resolution distribution; setting $\lambda = 0$ disables the regularisation. The default is deliberately light, leaving the recovered distribution close to unregularised. On the reference dataset the penalty has little effect below $\lambda pprox 2$ and the oscillation is suppressed near $\lambda pprox 3$, at a cost of roughly $0.1$ percentage points of residual; raise it if adjacent sub-bands are seen to ring.
 
 Division by $\langle h \rangle^2$ makes the penalty invariant under $h \mapsto ch$, and hence $\lambda$ invariant to the internal current normalisation. The amplitudes are defined relative to a scale fixed from one supplied scan and from the initial guess, and therefore depend on the assumed film thickness and on the number of sub-bands; without this division a given $\lambda$ would impose different smoothing as those settings varied. The misfit term is already scale-free, being expressed relative to the range of each measured scan, so the two contributions now share a common normalisation.
 
@@ -85,9 +85,9 @@ The scan rate of each uploaded file is inferred from its filename where possible
 
 | Parameter | Symbol | Default | Description |
 | --- | --- | --- | --- |
-| Sub-bands | $N$ | 16 | Number of fixed sigmoidal basis functions spanning the potential window. |
+| Sub-bands | $N$ | 50 | Number of fixed sigmoidal basis functions spanning the potential window. |
 | Sub-band width | $s$ | 38.92 V⁻¹ | Shared inverse width. The default is $F/RT$ at 298 K, the ideal one-electron Nernstian limit. Constrained so that adjacent sub-bands remain overlapping. |
-| DOS smoothing | $\lambda$ | 3 | Weight of the second-difference penalty on the sub-band amplitudes. Increase for a smoother distribution; set to zero to disable regularisation. |
+| DOS smoothing | $\lambda$ | 0.01 | Weight of the second-difference penalty on the sub-band amplitudes. Increase for a smoother distribution; set to zero to disable regularisation. |
 
 ### Numerical
 

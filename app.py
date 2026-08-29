@@ -46,7 +46,10 @@ def solve_cv_api(files, config_json: str):
             "film_thickness": float(raw_config.get("film_thickness", 1e-4)),
             "v_min": float(raw_config.get("v_min", -1.0)),
             "v_max": float(raw_config.get("v_max", 1.0)),
-            "skip_factor": int(raw_config.get("skip_factor", 4)),
+            # Downsampling is resolution-driven now; skip_factor is only an
+            # optional manual minimum stride and defaults to inactive.
+            "skip_factor": int(raw_config.get("skip_factor", 1)),
+            "samples_per_feature": float(raw_config.get("samples_per_feature", 6)),
             "num_peaks": int(raw_config.get("num_peaks", 50)),
             "peak_sharpness": float(raw_config.get("peak_sharpness", 38.92)),
             "dos_smoothness": float(raw_config.get("dos_smoothness", 0.01)),

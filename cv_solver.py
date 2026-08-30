@@ -30,6 +30,7 @@ from jax.lax import scan
 NERNST_SHARPNESS = 38.92   # F/RT at 298 K, the ideal one-electron limit
 LOSS_SCALE = 1e4           # carries the misfit as (RMSE percent of range) squared
 MIN_SCANS_TWO_SITE = 3     # below this the fast/slow split is not identifiable
+ELEMENTARY_CHARGE = 1.602176634e-19   # C, to turn fitted charge into a state count
 
 
 # ---------------------------------------------------------------- data loading
@@ -215,6 +216,10 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     v_min = float(config["v_min"])
     v_max = float(config["v_max"])
     num_peaks = int(config["num_peaks"])
+    # Electrode area, needed only to express the DOS per unit volume. It does
+    # not enter the fit: the misfit is scale-free and the calibration constant
+    # absorbs the overall current magnitude.
+    electrode_area = float(config.get("electrode_area", 1.0))
     # Truncating the Fourier solution at 20 terms costs about 1% of the simulated
     # current, but almost none of that reaches the fitted parameters: the error is
     # smooth and the DOS amplitudes absorb it. Against 40 terms the fit moves D_fast
@@ -245,8 +250,30 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     # Keep the nails overlapping; past this the basis becomes a comb with gaps.
     sharp_max = 3.5255 / (1.5 * peak_spacing)
     sharp_min = 5.0
-    sharp_init = float(np.clip(float(config.get("peak_sharpness", NERNST_SHARPNESS)),
-                               sharp_min, sharp_max))
+    sharp_want = float(config.get("peak_sharpness", NERNST_SHARPNESS))
+    sharp_init = float(np.clip(sharp_want, sharp_min, sharp_max))
+
+    # The width is held fixed rather than fitted. Fitted, it ran to the narrowest
+    # the grid allowed at every sub-band count tried (10, 25, 50), and where the
+    # grid was fine enough to let it choose freely it settled 2.1x sharper than a
+    # one-electron site can physically be. That is not site broadening being
+    # measured, it is a knob trading against the height profile - which is why the
+    # results already warned against reading it. Holding it at the Nernstian width
+    # costs nothing measurable (2.833 vs 2.868 percent at 50 sub-bands, 2.861 vs
+    # 2.821 at 100, both inside run-to-run scatter) and buys an unambiguous
+    # reading: each sub-band is then a population of ideal one-electron sites, so
+    # DOS(V) is the distribution of formal potentials rather than that distribution
+    # convolved with an arbitrary fitted blur.
+    #
+    # Set fit_dos_width to re-enable it, which is right only if the film is
+    # expected to be genuinely non-ideal. Note the direction: attractive site-site
+    # interactions sharpen a redox response and repulsive ones broaden it, so a
+    # charged film taking in ions should come out broader than Nernstian, not
+    # sharper, which is what fitting it actually produced.
+    fit_dos_width = bool(config.get("fit_dos_width", False))
+
+    # Sub-bands needed before the grid can carry the requested width at all.
+    peaks_for_width = int(np.ceil((v_max - v_min) * 1.5 * sharp_want / 3.5255)) + 1
 
     def build_peaks_matrix(peak_heights, sharpness):
         return jnp.stack([peak_heights,
@@ -431,6 +458,10 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
         if idx == 3:
             return (v_min + 0.2, v_max - 0.2)
         if idx == 4:
+            # Collapsed to a point unless explicitly re-enabled, so the width stays
+            # wherever sharp_init put it.
+            if not fit_dos_width:
+                return (val, val)
             return (sharp_min / MULT["sharp"], sharp_max / MULT["sharp"])
         # Held off the endpoints: at d_ratio = 1 the two environments merge and the
         # fraction stops meaning anything, and at a fraction of 0 or 1 the ratio does.
@@ -459,7 +490,7 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
         ("baseline", idx_offset, weights_masked),
         # The offsets stay frozen so the DOS forms against a settled baseline
         # instead of absorbing it.
-        ("peaks", idx_peaks + [4], weights_full),
+        ("peaks", idx_peaks + ([4] if fit_dos_width else []), weights_full),
         ("diffusion", idx_diffusion + ([5, 6] if two_site else []), weights_full),
         ("polish", all_idx, weights_full),
     ]
@@ -513,6 +544,20 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     dos_matrix = heights[:, np.newaxis] * sharpness * e / (1.0 + e)**2
     dos_total = dos_matrix.sum(axis=0)
 
+    # Put the DOS in absolute units. As built, dos_matrix is a charge per unit
+    # length per volt (C cm^-1 V^-1): once the calibration constant is applied the
+    # heights carry C/cm, and the sigmoid derivative contributes the V^-1. Dividing
+    # by the electrode area turns per-length into per-volume, and by the elementary
+    # charge turns charge into a count of states. For a one-electron transfer a
+    # volt of potential is an electronvolt of energy, so V^-1 becomes eV^-1 without
+    # a numerical factor. The result is states cm^-3 eV^-1.
+    #
+    # The SHAPE of this curve is what the data determines. Its absolute height is
+    # only as good as the area and the thickness, neither of which is measured here.
+    dos_unit = max(electrode_area, 1e-30) * ELEMENTARY_CHARGE
+    dos_matrix = dos_matrix / dos_unit
+    dos_total = dos_total / dos_unit
+
     # A parameter sitting on its bound is reporting the constraint, not the data.
     notes = []
     if transport_requested == "two_site" and not two_site:
@@ -545,9 +590,31 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
                " than by curvature in D(V)." if two_site else ""))
     elif min(abs(v_center - (v_min + 0.2)), abs(v_center - (v_max - 0.2))) < 0.01:
         notes.append("V_center is on its bound, so the data is not locating the D(V) minimum.")
-    if abs(sharpness - sharp_max) < 0.01 * sharp_max or abs(sharpness - sharp_min) < 0.01 * sharp_min:
+    if fit_dos_width and (abs(sharpness - sharp_max) < 0.01 * sharp_max
+                          or abs(sharpness - sharp_min) < 0.01 * sharp_min):
         notes.append("DOS width is on its bound. It is a smoothing width degenerate "
                      "with the height profile - read the DOS curve, not this number.")
+    if not fit_dos_width:
+        notes.append(
+            f"Sub-band width was held fixed at {sharpness:.2f} 1/V (FWHM "
+            f"{1000 * fwhm:.0f} mV) rather than fitted, so each sub-band is one ideal "
+            f"one-electron site population and the DOS reads as a distribution of "
+            f"formal potentials. Fitted, this width is degenerate with the height "
+            f"profile and runs to whichever bound the grid imposes.")
+        if sharp_init < sharp_want - 1e-9:
+            notes.append(
+                f"The sub-band grid is too coarse for the requested width: "
+                f"{num_peaks} sub-bands cap it at {sharp_max:.1f} 1/V against the "
+                f"{sharp_want:.1f} 1/V asked for, so the sub-bands are broader than "
+                f"intended and the DOS is correspondingly over-smoothed. About "
+                f"{peaks_for_width} sub-bands would be needed to carry it.")
+    notes.append(
+        f"DOS is reported in states cm^-3 eV^-1 using the film thickness "
+        f"({thickness:.3g} cm) and electrode area ({electrode_area:.3g} cm^2) as "
+        f"supplied. Both are inputs, not measurements, and the absolute height of "
+        f"the curve scales inversely with their product - the shape does not. The "
+        f"integrated site density is an extrapolation beyond the measured window "
+        f"and should not be quoted as a measured density.")
     notes.append(
         "D scales with the square of the film thickness, which is an input here, not "
         f"a measurement: at L = {thickness:.3g} cm, a thickness wrong by 2x moves every "
@@ -557,6 +624,12 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     # if the non-faradaic terms carry much of it they are absorbing signal that
     # belongs to the DOS. In practice they carry only a couple of percent.
     dos_charge = float(thickness * np.sum(heights))
+    # Sites per unit volume implied by that charge. Reported for completeness,
+    # but it is an extrapolation: the model says most sites barely participate
+    # over the measured window, so this runs well above the anodic charge that
+    # was actually measured. Not a measurement of site density.
+    dos_site_density = float(dos_charge / ELEMENTARY_CHARGE
+                             / max(electrode_area * thickness, 1e-30))
 
     scan_results = []
     for i, d in enumerate(loaded):
@@ -604,6 +677,9 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
             "final_loss": float(res.fun),
             "film_thickness": thickness,
             "dos_charge": dos_charge,
+            "electrode_area": electrode_area,
+            "dos_site_density": dos_site_density,
+            "dos_units": "cm^-3 eV^-1",
         },
         "notes": notes,
         "scans": scan_results,

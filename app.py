@@ -44,6 +44,7 @@ def solve_cv_api(files, config_json: str):
         raw_config = json.loads(config_json) if isinstance(config_json, str) else (config_json or {})
         config = {
             "film_thickness": float(raw_config.get("film_thickness", 1e-4)),
+            "electrode_area": float(raw_config.get("electrode_area", 1.0)),
             "v_min": float(raw_config.get("v_min", -1.0)),
             "v_max": float(raw_config.get("v_max", 1.0)),
             # Downsampling is resolution-driven now; skip_factor is only an
@@ -102,7 +103,10 @@ def solve_cv_api(files, config_json: str):
                 "num_scans": shared["num_scans"],
                 "final_loss": shared["final_loss"],
                 "film_thickness": shared["film_thickness"],
-                "dos_charge": shared["dos_charge"]
+                "dos_charge": shared["dos_charge"],
+                "electrode_area": shared["electrode_area"],
+                "dos_site_density": shared["dos_site_density"],
+                "dos_units": shared["dos_units"]
             },
             "notes": result["notes"],
             "scans": result["scans"],

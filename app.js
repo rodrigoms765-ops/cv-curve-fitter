@@ -718,7 +718,7 @@ function renderSecondaryPlots() {
 
     const dosLayout = Object.assign({}, layoutConfig, {
         xaxis: Object.assign({}, layoutConfig.xaxis, { title: axTitle('Potential <i>V</i> (V)'), autorange: true }),
-        yaxis: Object.assign({}, layoutConfig.yaxis, { title: axTitle('DOS (arb. units)'), autorange: true, tickformat: '.2e', nticks: 6 }),
+        yaxis: Object.assign({}, layoutConfig.yaxis, { title: axTitle('DOS (cm<sup>&minus;3</sup> eV<sup>&minus;1</sup>)'), autorange: true, tickformat: '.2e', nticks: 6 }),
         showlegend: true,
         legend: Object.assign({ orientation: 'h', y: -0.28 }, legendConfig),
         margin: { l: 70, r: 24, t: 12, b: 92 }

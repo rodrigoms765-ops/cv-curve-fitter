@@ -27,7 +27,8 @@ from cv_solver import solve_cv, read_csv_text
 # JSON endpoint and cannot parse the NDJSON body this file returns.
 
 DEFAULTS = {
-    "film_thickness": (float, 1e-4), "v_min": (float, -1.0), "v_max": (float, 1.0),
+    "film_thickness": (float, 1e-4), "electrode_area": (float, 1.0),
+    "v_min": (float, -1.0), "v_max": (float, 1.0),
     "skip_factor": (int, 1), "samples_per_feature": (float, 6.0),
     "num_peaks": (int, 50), "peak_sharpness": (float, 38.92),
     "dos_smoothness": (float, 0.01), "max_iter": (int, 500),

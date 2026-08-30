@@ -105,6 +105,14 @@
                                     </div>
                                     <div class="form-group">
                                         <div class="label-row">
+                                            <label for="electrode_area">Electrode area <i>A</i> (cm<sup>2</sup>)</label>
+                                            <button type="button" class="help-toggle" aria-expanded="false" aria-controls="hint-area" aria-label="About electrode area" onclick="window.toggleHint &amp;&amp; window.toggleHint(this, 'hint-area');">?</button>
+                                        </div>
+                                        <input type="number" step="any" id="electrode_area" name="electrode_area" value="1.0" required />
+                                        <span class="field-hint" id="hint-area" role="note" hidden>Used only to express the density of states per unit volume; it does not enter the fit. The height of the DOS curve scales inversely with area &times; thickness, so both must be right for the absolute scale to mean anything. The shape does not depend on either.</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <div class="label-row">
                                             <label for="transport">Transport model</label>
                                             <button type="button" class="help-toggle" aria-expanded="false" aria-controls="hint-transport" aria-label="About the transport model" onclick="window.toggleHint &amp;&amp; window.toggleHint(this, 'hint-transport');">?</button>
                                         </div>

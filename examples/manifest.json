@@ -1,0 +1,44 @@
+{
+  "label": "Four sweep rates, 40 to 320 mV/s, on a 2 cm² film, third cycle of each file",
+  "files": [
+    {
+      "path": "cv_40mVs.csv",
+      "name": "1p0k 30s 0p1g 2cm2_-1V1V_40mVs.csv",
+      "scan_rate": 0.04
+    },
+    {
+      "path": "cv_80mVs.csv",
+      "name": "1p0k 30s 0p1g 2cm2_-1V1V_80mVs.csv",
+      "scan_rate": 0.08
+    },
+    {
+      "path": "cv_160mVs.csv",
+      "name": "1p0k 30s 0p1g 2cm2_-1V1V_160mVs.csv",
+      "scan_rate": 0.16
+    },
+    {
+      "path": "cv_320mVs.csv",
+      "name": "1p0k 30s 0p1g 2cm2_-1V1V_320mVs.csv",
+      "scan_rate": 0.32
+    }
+  ],
+  "config": {
+    "pot_col": 8,
+    "cur_col": 9,
+    "film_thickness": 0.0001,
+    "electrode_area": 2.0,
+    "transport": "two_site",
+    "v_min": -0.998,
+    "v_max": 1.004,
+    "num_peaks": 50,
+    "peak_sharpness": 38.92,
+    "dos_smoothness": 0.01,
+    "smooth_width_V": 0.35,
+    "num_terms": 20,
+    "samples_per_feature": 6,
+    "max_iter": 500,
+    "tol_ftol": 1e-09,
+    "loss_weight_const": 1.0
+  },
+  "result": "result.json"
+}

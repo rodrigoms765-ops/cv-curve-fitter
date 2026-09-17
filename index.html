@@ -55,6 +55,13 @@
                                     </div>
                                     <input type="file" id="csv-file-input" class="hidden-file-input" accept=".csv,.txt,.dat" multiple onchange="window.handleCSVFileChange && window.handleCSVFileChange(this);" />
                                 </div>
+                                <div class="example-actions">
+                                    <span class="example-label">No data to hand?</span>
+                                    <span class="example-buttons">
+                                        <button type="button" class="btn-example" onclick="window.loadExampleData && window.loadExampleData();">Load example scans</button>
+                                        <button type="button" class="btn-example" onclick="window.showExampleResult && window.showExampleResult();">Show example result</button>
+                                    </span>
+                                </div>
                             </fieldset>
 
                             <fieldset class="form-section">

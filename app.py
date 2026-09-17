@@ -8,6 +8,7 @@ import io
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.requests import Request
 
 # Configure paths
@@ -155,6 +156,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Example scans and a stored fit of them, so the tool can be seen working without
+# data to hand. StaticFiles confines requests to this directory.
+EXAMPLES_DIR = ROOT_DIR / "examples"
+if EXAMPLES_DIR.is_dir():
+    app.mount("/examples", StaticFiles(directory=str(EXAMPLES_DIR)), name="examples")
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():

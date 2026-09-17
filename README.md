@@ -12,6 +12,8 @@ Ion transport within the thin-film electrode is described by a one-dimensional d
 
 The interface accepts `.csv` or `.txt` potentiostat files, exposes the model and solver parameters, and permits export of the fitted curves and extracted quantities without local installation.
 
+Example data is provided for demonstration. *Load example scans* stages four voltammograms of the same film (40, 80, 160 and 320 mV s<sup>&minus;1</sup>, third cycle of each file, 2 cm<sup>2</sup> electrode) together with the settings they were fitted with; *Show example result* displays the stored joint fit of those scans immediately, which is useful because a live fit on the hosted instance takes several minutes. The files, settings and stored result are in `examples/`. The stored result is only valid for the solver that produced it, and should be regenerated with `python examples/build_example.py` after any change to `cv_solver.py`.
+
 ## Methodology
 
 ### Forward model

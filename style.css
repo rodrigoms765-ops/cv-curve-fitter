@@ -467,7 +467,8 @@ select:focus,
 
 .export-actions { display: flex; gap: 0.5rem; }
 
-.btn-export {
+.btn-export,
+.btn-example {
     padding: 0.35rem 0.7rem;
     font-family: var(--sans);
     font-size: 0.72rem;
@@ -480,7 +481,29 @@ select:focus,
     transition: border-color 0.12s ease, color 0.12s ease;
 }
 
-.btn-export:hover { border-color: var(--marine); color: var(--marine); }
+.btn-export:hover,
+.btn-example:hover { border-color: var(--marine); color: var(--marine); }
+
+.example-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.7rem;
+}
+
+.example-label {
+    margin-right: auto;
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+}
+
+/* Kept together so a narrow panel wraps both buttons below the label as a pair. */
+.example-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
 
 /* ------------------------------------------------------------------ status */
 

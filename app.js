@@ -300,6 +300,86 @@ window.handleCSVDrop = function(event) {
 };
 
 
+// Example data. The files and the settings they were fitted with live together in
+// examples/manifest.json, so what gets staged here is exactly what produced the
+// stored result, and running the fit from it reproduces that result.
+const EXAMPLE_BASE = window.location.origin + '/examples/';
+
+function setExampleStatus(stage, details) {
+    const stageEl = document.getElementById('status-stage');
+    const detailsEl = document.getElementById('status-details');
+    if (stageEl) stageEl.innerText = stage;
+    if (detailsEl) detailsEl.innerText = details;
+}
+
+// Settings are applied after the files are staged, because the column menus only
+// exist once a file has been read. The columns matter: for these files the
+// auto-detection picks the resampled "Adjusted" pair from the fourth cycle, not the
+// raw third cycle the example was fitted on. Reading the preview also resets the
+// potential window from the data, so the example's own values go in a second time.
+function applyExampleConfig(config) {
+    const apply = () => Object.entries(config).forEach(([key, value]) => {
+        const el = document.querySelector(`#cv-form [name="${key}"]`);
+        if (el) el.value = value;
+    });
+    apply();
+    window.updateLivePreviewFromColumns();
+    apply();
+}
+
+async function stageExample() {
+    const res = await fetch(EXAMPLE_BASE + 'manifest.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`The example data could not be loaded (HTTP ${res.status}).`);
+    const manifest = await res.json();
+
+    const files = await Promise.all(manifest.files.map(async f => {
+        const r = await fetch(EXAMPLE_BASE + encodeURIComponent(f.path), { cache: 'no-store' });
+        if (!r.ok) throw new Error(`${f.name} could not be loaded (HTTP ${r.status}).`);
+        return { name: f.name, content: await r.text() };
+    }));
+
+    addLoadedFiles(files);
+    manifest.files.forEach((f, i) => {
+        const el = document.getElementById(`scan_rate_${i}`);
+        if (el) el.value = f.scan_rate;
+    });
+    applyExampleConfig(manifest.config);
+    return manifest;
+}
+
+window.loadExampleData = async function() {
+    if (isOptimizing) return;
+    setExampleStatus('Loading Example…', '');
+    try {
+        const manifest = await stageExample();
+        setExampleStatus('Example Loaded',
+            `${manifest.label}. Run the joint fit to compute it live — on the hosted `
+            + `solver that takes several minutes — or show the stored result.`);
+    } catch (err) {
+        setExampleStatus('Example Unavailable', err.message);
+    }
+};
+
+window.showExampleResult = async function() {
+    if (isOptimizing) return;
+    setExampleStatus('Loading Example…', '');
+    try {
+        const manifest = await stageExample();
+        const res = await fetch(EXAMPLE_BASE + manifest.result, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`The stored result could not be loaded (HTTP ${res.status}).`);
+        fitResult = await res.json();
+        stagedFiles.forEach(f => { f.status = 'done'; });
+        updateLivePlotProgress();
+        displayExtractedResults();
+        setExampleStatus('Example Result',
+            `${manifest.label}. This is the stored joint fit, computed with the settings `
+            + `now shown; run the joint fit to recompute it.`);
+    } catch (err) {
+        fitResult = null;
+        setExampleStatus('Example Unavailable', err.message);
+    }
+};
+
 // Global Form Submit Handler
 window.handleFormSubmit = async function(e) {
     if (e && e.preventDefault) e.preventDefault();

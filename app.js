@@ -743,15 +743,6 @@ function displayExtractedResults() {
                 </div>`;
             paramsDiv.appendChild(perScan);
         }
-
-        // Bound hits and identifiability caveats reported by the solver.
-        if (fitResult.notes && fitResult.notes.length) {
-            const notes = document.createElement('div');
-            notes.className = 'notes';
-            notes.innerHTML = '<span class="notes-title">Caveats reported by the solver</span>'
-                + fitResult.notes.map(n => `<p class="note-item">${n}</p>`).join('');
-            paramsDiv.appendChild(notes);
-        }
     }
 
     renderSecondaryPlots();

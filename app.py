@@ -33,6 +33,12 @@ def _transport_mode(raw_config):
     return mode if mode in ("two_site", "single") else "two_site"
 
 
+def _resistance_mode(raw_config):
+    """How the uncompensated series resistance is handled: fitted, or held."""
+    mode = str(raw_config.get("resistance_mode", "")).lower()
+    return mode if mode in ("fit", "fixed") else "fixed"
+
+
 def solve_cv_api(files, config_json: str):
     """Fit every uploaded scan at once against one shared D(V) and DOS.
 
@@ -46,6 +52,8 @@ def solve_cv_api(files, config_json: str):
         config = {
             "film_thickness": float(raw_config.get("film_thickness", 1e-4)),
             "electrode_area": float(raw_config.get("electrode_area", 1.0)),
+            "series_resistance": float(raw_config.get("series_resistance", 0.0)),
+            "resistance_mode": _resistance_mode(raw_config),
             "v_min": float(raw_config.get("v_min", -1.0)),
             "v_max": float(raw_config.get("v_max", 1.0)),
             # Downsampling is resolution-driven now; skip_factor is only an
@@ -105,6 +113,9 @@ def solve_cv_api(files, config_json: str):
                 "final_loss": shared["final_loss"],
                 "film_thickness": shared["film_thickness"],
                 "dos_charge": shared["dos_charge"],
+                "series_resistance": shared["series_resistance"],
+                "ir_drop_max": shared["ir_drop_max"],
+                "resistance_mode": shared["resistance_mode"],
                 "electrode_area": shared["electrode_area"],
                 "dos_site_density": shared["dos_site_density"],
                 "dos_units": shared["dos_units"]

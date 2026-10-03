@@ -1,5 +1,5 @@
 {
-  "label": "Four sweep rates, 40 to 320 mV/s, on a 2 cm² film, third cycle of each file",
+  "label": "Four sweep rates, 40 to 320 mV/s, on a 2 cm\u00b2 film, third cycle of each file",
   "files": [
     {
       "path": "cv_40mVs.csv",

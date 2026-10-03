@@ -120,6 +120,21 @@
                                     </div>
                                     <div class="form-group">
                                         <div class="label-row">
+                                            <label for="resistance_mode">Series resistance</label>
+                                            <button type="button" class="help-toggle" aria-expanded="false" aria-controls="hint-resistance" aria-label="About series resistance" onclick="window.toggleHint &amp;&amp; window.toggleHint(this, 'hint-resistance');">?</button>
+                                        </div>
+                                        <select id="resistance_mode" name="resistance_mode" class="academic-dropdown">
+                                            <option value="fixed">Held at the value below</option>
+                                            <option value="fit">Recovered from the fit</option>
+                                        </select>
+                                        <span class="field-hint" id="hint-resistance" role="note" hidden>The film sees the applied potential less the ohmic drop <i>IR</i> across the solution, so every current-carrying point is displaced along the potential axis. Unaccounted for, it widens the separation between oxidation and reduction peaks in proportion to the current, which a density of states shared across sweep rates can only absorb by flattening. Hold it at a measured value once the high-frequency intercept of an impedance spectrum is known, or at zero to leave it out.</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="series_resistance"><i>R</i><sub>u</sub> (&Omega;)</label>
+                                        <input type="number" step="any" id="series_resistance" name="series_resistance" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <div class="label-row">
                                             <label for="transport">Transport model</label>
                                             <button type="button" class="help-toggle" aria-expanded="false" aria-controls="hint-transport" aria-label="About the transport model" onclick="window.toggleHint &amp;&amp; window.toggleHint(this, 'hint-transport');">?</button>
                                         </div>

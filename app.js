@@ -701,6 +701,11 @@ function displayExtractedResults() {
         // V_c, the sub-band width and the integrated charge are still returned by
         // the solver and still travel in the JSON export; they are simply not the
         // headline numbers, and the curve below says more than V_c does.
+        if (p.resistance_mode === 'fit' || (p.series_resistance || 0) > 0) {
+            cards.push({ label: 'Series resistance',
+                         value: `${(p.series_resistance || 0).toFixed(0)} \u03a9`
+                                + ` \u2014 ${(1000 * (p.ir_drop_max || 0)).toFixed(0)} mV at peak current` });
+        }
         if (p.d_of_v_determined) {
             cards.push({ label: 'Exponents β, left / right',
                          value: `${p.beta_L.toFixed(3)} / ${p.beta_R.toFixed(3)}` });

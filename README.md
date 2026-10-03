@@ -82,6 +82,7 @@ The scan rate of each uploaded file is inferred from its filename where possible
 | Film thickness | $L$ | $10^{-4}$ cm | Diffusion length of the film. The voltammogram constrains $D/L^2$, so the absolute diffusion coefficient scales with $L^2$. |
 | Potential window | $V_{\min}$, $V_{\max}$ | $-1.0$, $1.0$ V | Limits of the swept potential range; also sets the extent of the sub-band grid. |
 | Transport model | — | two environments | Fast/slow split sharing one $DOS(V)$, or a single diffusivity. Requires at least three scan rates; below that the solver falls back to a single diffusivity. |
+| Series resistance | $R_u$ | $0\ \Omega$ (off) | Uncompensated resistance between working and reference electrodes. The film is driven at $V - IR_u$, so each current-carrying point is displaced along the potential axis. Either held at a measured value, from the high-frequency intercept of an impedance spectrum, or recovered from the fit. |
 
 ### Density of states
 

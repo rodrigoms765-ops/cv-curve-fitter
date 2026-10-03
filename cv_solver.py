@@ -13,6 +13,10 @@ a semicrystalline film, which admit hydrated ions at very different rates.
 
 Fitting one scan alone cannot separate the DOS from diffusion, so a single-scan D
 is not identifiable, and two environments need more scan rates still.
+
+An uncompensated series resistance, driving the film at V - IR, was tried and
+removed: on every film measured so far the loss rises monotonically from R = 0
+and a free fit puts it at zero of its own accord.
 """
 
 import io
@@ -230,50 +234,13 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     if transport_requested not in ("two_site", "single"):
         transport_requested = "two_site"
 
-    # Uncompensated series resistance. The potential the film actually sees is the
-    # applied potential less the ohmic drop across the solution between the working
-    # and reference electrodes, so every current-carrying point is displaced along
-    # the potential axis by I*R. This is not an approximation: the current through
-    # that resistance IS the measured current, so I is data, the correction is
-    # explicit, and R enters the model as one global parameter.
-    #
-    # Left out, it masquerades as physics. A peak is pushed anodic on the forward
-    # sweep and cathodic on the return by the same I*R, so the apparent separation
-    # grows with sweep rate exactly as a transport lag would - except it tracks the
-    # CURRENT rather than the rate. A joint fit shares one DOS across sweep rates,
-    # so when the data puts a peak at a different potential in every scan the only
-    # reachable compromise is to flatten the DOS until it spans them all.
-    #
-    # 'fit' recovers it from that signature; 'fixed' holds it at series_resistance,
-    # which is the right mode once it has been measured (the high-frequency
-    # intercept of an impedance spectrum). Fixed at 0, the default, disables it.
-    #
-    # Default off because on the films measured so far it is not wanted. Holding R
-    # at a grid of values and refitting everything else raises the loss monotonically
-    # from R = 0 on both 0.1711 M LiClO4 films - there is no minimum away from zero -
-    # and the free fit puts it at zero of its own accord. The peak separations in
-    # those films do grow in proportion to the peak current, which looks ohmic, but
-    # peak current is itself a function of sweep rate, so that correlation does not
-    # separate an ohmic drop from anything else that widens with rate. Settling it
-    # needs currents varied at FIXED sweep rate, by film thickness or electrode area.
-    series_resistance = float(config.get("series_resistance", 0.0))
-    resistance_mode = str(config.get("resistance_mode", "fixed")).lower()
-    if resistance_mode not in ("fit", "fixed"):
-        resistance_mode = "fit"
-    fit_resistance = resistance_mode == "fit"
-
-    NUM_GLOBALS = 8    # ..., frac_fast, d_ratio, series resistance
+    NUM_GLOBALS = 7    # D0, two betas, V_center, sharpness, frac_fast, d_ratio
     NUM_INDEP = 1      # per scan: a constant current offset, nothing else
     MULT = {
         "diff": thickness**2 / 10.0,
         "beta": 1.0,
         # Set from the data once the scans are loaded - see below.
         "offset": None,
-        # Ohms per scaled unit, also set below. Scaled this way the parameter IS
-        # the ohmic drop in volts at the largest measured current, which keeps it
-        # of order one whatever units the current arrives in and makes the bound
-        # below mean something physical.
-        "r_u": None,
         "sharp": NERNST_SHARPNESS,
     }
 
@@ -349,7 +316,6 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     target_jax = [jnp.array(d["current"][1:]) for d in loaded]
     # The ohmic correction needs the current at every point, including the first,
     # because it displaces the potential rather than the current.
-    current_jax = [jnp.array(d["current"]) for d in loaded]
 
     # Emphasise regions of high curvature and large current, and mask the window
     # edges during the baseline stage so the tails do not drag the offset around.
@@ -383,8 +349,7 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     x0 = np.concatenate([
         [1.0, 0.0, 0.0, mean_pot, sharp_init / MULT["sharp"],
          0.5,      # frac_fast: share of the sites in the fast environment
-         0.1,      # d_ratio: D_slow / D_fast
-         0.0],     # series resistance; set below, once its scale is known
+         0.1],     # d_ratio: D_slow / D_fast
         np.zeros(num_scans),
         np.ones(num_peaks),
     ])
@@ -398,8 +363,6 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     # fraction by 10%; scaled this way both stay under 1%.
     i_max = max(float(np.max(np.abs(d["current"]))) for d in loaded)
     MULT["offset"] = max(i_max, 1e-12)
-    MULT["r_u"] = 1.0 / max(i_max, 1e-12)
-    x0[7] = series_resistance / MULT["r_u"]
 
     # The offset is the one nuisance parameter left, so cap it at the largest
     # measured current: past that it would be standing in for the signal itself.
@@ -410,7 +373,7 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     init_peaks = jnp.array(np.column_stack(
         [np.ones(num_peaks), peak_vcrits, np.full(num_peaks, sharp_init)]))
     calib = [np.array(run_fourier_simulation_with_data(
-        time_jax[i], pot_jax[i] - series_resistance * current_jax[i],
+        time_jax[i], pot_jax[i],
         x0[0] * MULT["diff"], 0.0, 0.0, mean_pot,
         init_peaks, num_terms, thickness)) for i in range(num_scans)]
 
@@ -432,7 +395,6 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
         sharpness = p[4] * MULT["sharp"]
         frac_fast = p[5]
         d_ratio = p[6]
-        r_u = p[7] * MULT["r_u"]
 
         peak_heights = p[NUM_GLOBALS + NUM_INDEP * num_scans:]
         peaks_matrix = build_peaks_matrix(peak_heights, sharpness)
@@ -442,18 +404,15 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
         for i in range(num_scans):
             offset = p[NUM_GLOBALS + i * NUM_INDEP] * MULT["offset"]
 
-            # What the film sees, not what the potentiostat applied.
-            v_eff = pot_jax[i] - r_u * current_jax[i]
-
             sim = run_fourier_simulation_with_data(
-                time_jax[i], v_eff, diffusivity, beta_left, beta_right,
+                time_jax[i], pot_jax[i], diffusivity, beta_left, beta_right,
                 v_center, peaks_matrix, num_terms, thickness)
             if two_site:
                 # Same DOS and the same D(V) shape, slower by d_ratio. The current
                 # is linear in the heights, so blending the two runs is the same as
                 # splitting every nail between a fast and a slow environment.
                 sim_slow = run_fourier_simulation_with_data(
-                    time_jax[i], v_eff, diffusivity * d_ratio, beta_left,
+                    time_jax[i], pot_jax[i], diffusivity * d_ratio, beta_left,
                     beta_right, v_center, peaks_matrix, num_terms, thickness)
                 sim = frac_fast * sim + (1.0 - frac_fast) * sim_slow
             # Everything but the constant offset is faradaic by construction.
@@ -517,11 +476,6 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
             return (0.02, 0.98) if two_site else (val, val)
         if idx == 6:
             return (1e-3, 0.9) if two_site else (val, val)
-        # Non-negative, and capped at an ohmic drop of one volt at the largest
-        # measured current. Unbounded, a resistance will happily slide the whole
-        # response along the potential axis to paper over a wrong DOS.
-        if idx == 7:
-            return (0.0, 1.0) if fit_resistance else (val, val)
         if idx < NUM_GLOBALS + NUM_INDEP * num_scans:
             # Absolute, not recomputed from the current value each stage. The
             # drifting form let the offset ratchet onto whatever limit the previous
@@ -536,10 +490,7 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     # --- staged optimisation --------------------------------------------------
     all_idx = list(range(len(x0)))
     idx_offset = [NUM_GLOBALS + i * NUM_INDEP for i in range(num_scans)]
-    # The resistance is fitted with the transport parameters, on unmasked
-    # weights: what identifies it is where the peaks sit, and the baseline
-    # stage masks the window edges and freezes everything else.
-    idx_diffusion = [0, 1, 2, 3] + ([7] if fit_resistance else [])
+    idx_diffusion = [0, 1, 2, 3]
     idx_peaks = list(range(NUM_GLOBALS + NUM_INDEP * num_scans, len(x0)))
 
     stages = [
@@ -580,8 +531,6 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     sharpness = float(x[4] * MULT["sharp"])
     frac_fast = float(x[5])
     d_ratio = float(x[6])
-    r_u_ohms = float(x[7] * MULT["r_u"])
-    ir_drop_max = float(x[7])   # volts, at the largest measured current
     d_slow = D0 * d_ratio
     fwhm = 3.5255 / sharpness
 
@@ -735,9 +684,6 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
             "final_loss": float(res.fun),
             "film_thickness": thickness,
             "dos_charge": dos_charge,
-            "series_resistance": r_u_ohms,
-            "ir_drop_max": ir_drop_max,
-            "resistance_mode": resistance_mode,
             "electrode_area": electrode_area,
             "dos_site_density": dos_site_density,
             "dos_units": "cm^-3 eV^-1",

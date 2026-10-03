@@ -28,7 +28,6 @@ from cv_solver import solve_cv, read_csv_text
 
 DEFAULTS = {
     "film_thickness": (float, 1e-4), "electrode_area": (float, 1.0),
-    "series_resistance": (float, 0.0),
     "v_min": (float, -1.0), "v_max": (float, 1.0),
     "skip_factor": (int, 1), "samples_per_feature": (float, 6.0),
     "num_peaks": (int, 50), "peak_sharpness": (float, 38.92),
@@ -45,8 +44,6 @@ def build_config(raw):
     mode = str(raw.get("transport", "")).lower()
     cfg["transport"] = mode if mode in ("two_site", "single") else "two_site"
     cfg["smooth_width_V"] = float(raw.get("smooth_width_V", 0.35))
-    rmode = str(raw.get("resistance_mode", "")).lower()
-    cfg["resistance_mode"] = rmode if rmode in ("fit", "fixed") else "fixed"
     return cfg
 
 

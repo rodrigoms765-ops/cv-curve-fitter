@@ -314,8 +314,6 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     time_jax = [jnp.array(d["time"]) for d in loaded]
     pot_jax = [jnp.array(d["potential"]) for d in loaded]
     target_jax = [jnp.array(d["current"][1:]) for d in loaded]
-    # The ohmic correction needs the current at every point, including the first,
-    # because it displaces the potential rather than the current.
 
     # Emphasise regions of high curvature and large current, and mask the window
     # edges during the baseline stage so the tails do not drag the offset around.

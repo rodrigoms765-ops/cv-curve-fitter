@@ -461,6 +461,27 @@ select:focus,
 
 .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
 
+.btn-stop {
+    width: 100%;
+    margin-top: 0.5rem;
+    padding: 0.6rem 1rem;
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    cursor: pointer;
+    transition: border-color 0.12s ease, color 0.12s ease;
+}
+
+.btn-stop:hover:not(:disabled) { border-color: var(--ink); color: var(--ink); }
+
+.btn-stop:disabled { opacity: 0.45; cursor: not-allowed; }
+
 .export-actions { display: flex; gap: 0.5rem; }
 
 .btn-export,

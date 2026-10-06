@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 from pathlib import Path
 import json
 import traceback
@@ -10,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.requests import Request
+from starlette.concurrency import run_in_threadpool
 
 # Configure paths
 ROOT_DIR = Path(__file__).resolve().parent
@@ -19,7 +21,32 @@ for d in [str(ROOT_DIR), str(BACKEND_DIR)]:
         sys.path.insert(0, d)
 
 # Import solver
-from cv_solver import solve_cv, read_csv_text
+from cv_solver import solve_cv, read_csv_text, FitCancelled
+
+# Runs the client asks to stop, by the job id it chose for the run. A set would
+# do, except that an id must not linger and cancel a later run that reuses it, so
+# entries are dropped when the fit they belong to finishes and the oldest are
+# dropped if a client ever stops asking. Insertion order makes that one line.
+_CANCELLED = {}
+_CANCEL_LOCK = threading.Lock()
+_MAX_TRACKED = 256
+
+
+def request_cancel(job_id):
+    with _CANCEL_LOCK:
+        _CANCELLED[job_id] = True
+        while len(_CANCELLED) > _MAX_TRACKED:
+            del _CANCELLED[next(iter(_CANCELLED))]
+
+
+def cancel_requested(job_id):
+    with _CANCEL_LOCK:
+        return job_id in _CANCELLED
+
+
+def clear_cancel(job_id):
+    with _CANCEL_LOCK:
+        _CANCELLED.pop(job_id, None)
 
 def _transport_mode(raw_config):
     """Transport model, ignoring the retired background/use_tafel settings.
@@ -33,7 +60,7 @@ def _transport_mode(raw_config):
     return mode if mode in ("two_site", "single") else "two_site"
 
 
-def solve_cv_api(files, config_json: str):
+def solve_cv_api(files, config_json: str, job_id=None):
     """Fit every uploaded scan at once against one shared D(V) and DOS.
 
     files: [{"name": str, "content": str, "scan_rate": float in V/s}, ...]
@@ -59,6 +86,9 @@ def solve_cv_api(files, config_json: str):
             "tol_ftol": float(raw_config.get("tol_ftol", 1e-9)),
             "tol_gtol": float(raw_config.get("tol_gtol", 1e-8)),
             "num_terms": int(raw_config.get("num_terms", 20)),
+            # Consulted between optimiser steps so a stop reaches the solver
+            # rather than only freeing the browser.
+            "should_stop": (lambda: cancel_requested(job_id)) if job_id else None,
             "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0)),
             "smooth_width_V": float(raw_config.get("smooth_width_V", 0.35)),
             "transport": _transport_mode(raw_config)
@@ -118,6 +148,11 @@ def solve_cv_api(files, config_json: str):
                 "dos_total": result["plots"]["dos_total"],
                 "dos_peaks": result["plots"]["dos_matrix"]
             }
+        })
+    except FitCancelled:
+        return json.dumps({
+            "type": "cancelled",
+            "message": "Optimization stopped before it finished, so there is no fit to report."
         })
     except Exception as e:
         return json.dumps({
@@ -204,8 +239,31 @@ async def api_solve_handler(request: Request):
             files = [{"name": data.get("file_name", "scan"),
                       "content": content,
                       "scan_rate": config.get("scan_rate", 0.010)}]
-    res_str = solve_cv_api(files or [], json.dumps(config))
+    job_id = str(data.get("job_id") or "") or None
+    # Off the event loop: an async handler calling the solver directly blocks
+    # every other request for the length of the fit, including the one asking
+    # for that fit to stop.
+    try:
+        res_str = await run_in_threadpool(solve_cv_api, files or [],
+                                          json.dumps(config), job_id)
+    finally:
+        if job_id:
+            clear_cancel(job_id)
     return JSONResponse(content=json.loads(res_str))
+
+
+@app.post("/cancel")
+@app.post("/api/cancel")
+async def api_cancel_handler(request: Request):
+    """Mark a running fit as cancelled. The solver notices at its next step."""
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    job_id = str(data.get("job_id") or "")
+    if job_id:
+        request_cancel(job_id)
+    return JSONResponse(content={"type": "cancelling", "job_id": job_id})
 
 
 if __name__ == "__main__":

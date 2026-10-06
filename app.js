@@ -537,6 +537,14 @@ async function executeSolver(files, config, jobId) {
         if (!stageEl) return;
         // The free instance is roughly 30x slower than a laptop, so set expectations
         // rather than letting a correct-but-slow fit look like a hang.
+        // Once a stop is asked for, say so and keep counting: the solver only
+        // notices between optimiser steps, which on the hosted instance is
+        // seconds away, and a click that produces no visible change reads as a
+        // dead button exactly where the wait is longest.
+        if (cancelRequested) {
+            stageEl.innerText = `Stopping — ${elapsedSec} s elapsed`;
+            return;
+        }
         const hint = elapsedSec > 60
             ? '. The hosted solver is slow; several minutes is normal.'
             : '';

@@ -2,110 +2,143 @@
 
 ## Overview
 
-This repository implements a physically based simulation and optimisation framework for the quantitative analysis of cyclic voltammetry (CV) measurements. Its purpose is the recovery of the potential-dependent chemical diffusion coefficient, $D(V)$, and the density of electrochemically accessible states, $DOS(V)$, from raw potentiostat data.
+This repository fits cyclic voltammetry data to a diffusion model in order to recover two things from raw potentiostat files: the potential-dependent diffusion coefficient $D(V)$, and the density of electrochemically accessible states.
 
-Ion transport within the thin-film electrode is described by a one-dimensional diffusion equation subject to local equilibrium at the electrolyte interface and a no-flux condition at the current collector. The governing equation is solved by spectral decomposition, and model parameters are recovered by gradient-based non-linear least squares. Gradients are obtained through reverse-mode automatic differentiation (JAX), and minimisation is performed with the L-BFGS-B algorithm (SciPy).
+We treat the film as a one-dimensional slab in which ions diffuse, held at local equilibrium with the electrolyte at one face and with no flux through the current collector at the other. The diffusion equation is solved by the spectral method, and the model parameters are recovered by non-linear least squares. Gradients come from automatic differentiation in JAX, and the minimisation itself is done with L-BFGS-B from SciPy.
+
+The full derivation of the forward solution is in [`docs/mathematical_methods.tex`](docs/mathematical_methods.tex); what follows summarises the model as the code now implements it.
 
 ## Live Web Application
 
 **Access the live web application here:** [https://cv-curve-fitter.onrender.com/](https://cv-curve-fitter.onrender.com/)
 
-The interface accepts `.csv` or `.txt` potentiostat files, exposes the model and solver parameters, and permits export of the fitted curves and extracted quantities without local installation.
+The interface accepts `.csv` or `.txt` potentiostat files, exposes the model and solver parameters, and lets you export the fitted curves and the extracted quantities without installing anything.
 
-A running fit can be stopped with *Stop*, which reaches the solver rather than only the browser: the run is named by the client, a separate request marks that name cancelled, and the optimiser unwinds at its next step. A stopped run reports no fit, since the staged optimisation has no meaningful intermediate result.
+A running fit can be stopped with *Stop*. This reaches the solver rather than just the browser: each run is named by the client, a separate request marks that name cancelled, and the optimiser unwinds at its next step. A stopped run reports no fit at all, since a half-finished staged optimisation has no meaningful intermediate state.
 
-Example data is provided for demonstration. *Load example scans* stages four voltammograms of the same film (40, 80, 160 and 320 mV s<sup>&minus;1</sup>, third cycle of each file, 2 cm<sup>2</sup> electrode) together with the settings they were fitted with; *Show example result* displays the stored joint fit of those scans immediately, which is useful because a live fit on the hosted instance takes several minutes. The files, settings and stored result are in `examples/`. The stored result is only valid for the solver that produced it, and should be regenerated with `python examples/build_example.py` after any change to `cv_solver.py`.
+Example data is provided for demonstration. *Load example scans* stages four voltammograms of the same film (40, 80, 160 and 320 mV/s, third cycle of each file, 2 cm² electrode) together with the settings they were fitted with. *Show example result* displays the stored joint fit of those scans immediately, which is useful because a live fit on the hosted instance takes several minutes. The files, settings and stored result all live in `examples/`. The stored result is only valid for the solver that produced it, so regenerate it with `python examples/build_example.py` after any change to `cv_solver.py`.
 
-## Methodology
+## The Model
 
-### Forward model
+### The diffusion problem
 
-The occupancy of the film is expressed as a sum of sigmoidal sub-bands in potential, and its evolution is propagated by an exponential integrator over the measured potential program. The initial condition is taken as the periodic steady state of the cycle, so the result is independent of an assumed starting concentration profile.
+We begin by writing the problem down explicitly, noting that the diffusion coefficient $D(t) = D(V(t))$ depends on time because the potential is being swept:
 
-### Joint multi-scan fitting
+$$u_t = D(t) u_{xx}, \qquad u(0,t) = f(t), \qquad u_x(L,t) = 0, \qquad u(x,0) = u(x, k\tilde{T})$$
 
-All supplied scan rates are fitted simultaneously against a single shared $D(V)$ and $DOS(V)$. A constant baseline offset is the only quantity permitted to differ between scans, consistent with the interpretation of $D(V)$ and $DOS(V)$ as intrinsic properties of the film.
+Here $f(t)$ is the equilibrium occupancy at the electrolyte face, set by the applied potential, and the last condition says that we want the periodic steady state of the cycle rather than the response to some assumed starting profile.
 
-Earlier revisions additionally admitted exponential edge terms. These have been removed: the fitted decay constant converged onto whichever bound was imposed rather than onto a value determined by the data, indicating that the terms were acting as a general-purpose smoother. More seriously, they carried per-scan freedom and thereby masked a genuine disagreement between scan rates — precisely the discrepancy that a joint multi-scan fit exists to expose.
+### Spectral solution
 
-### Density-of-states representation
+Writing $u = v + f(t)$ moves the inhomogeneity off the boundary and into the equation, leaving $v$ with homogeneous boundary conditions. We then expand
 
-The density of states is expanded over a fixed uniform grid of sigmoidal sub-bands of common width, with only the amplitudes treated as free parameters. Permitting the position and width of each sub-band to vary independently renders the recovered distribution non-unique.
+$$v(x,t) = \sum_{n=1}^{\infty} T_n(t) \sin(\lambda_n x), \qquad \lambda_n = \frac{(2n-1)\pi}{2L}$$
 
-Because the simulated current is linear in these amplitudes, their recovery constitutes a linear inverse problem and inherits its characteristic noise amplification: unregularised amplitudes oscillate between adjacent sub-bands. A second-difference (Tikhonov) penalty of weight $\lambda$ is therefore imposed,
+which satisfies both boundary conditions term by term. Projecting onto $\sin(\lambda_m x)$ and using orthogonality decouples the modes,
 
-$$\mathcal{L} = \mathcal{L}_{\mathrm{misfit}} + \lambda \, (\Delta V)^{-3} \sum_i \left( h_{i+2} - 2h_{i+1} + h_i \right)^2 \big/ \langle h \rangle^2 ,$$
+$$T_m'(t) = -D(t) \lambda_m^2 T_m(t) - f'(t) c_m$$
 
-where $h_i$ denotes the amplitude of sub-band $i$, $\Delta V$ their spacing, and $\langle h \rangle$ their mean. The spacing factor renders the penalty an approximation to $\int (\mathrm{d}^2 DOS/\mathrm{d}V^2)^2\,\mathrm{d}V$, so that $\lambda$ carries the same meaning at any number of sub-bands. Larger values yield a smoother, lower-resolution distribution; setting $\lambda = 0$ disables the regularisation. The default is deliberately light, leaving the recovered distribution close to unregularised. On the reference dataset the penalty has little effect below $\lambda pprox 2$ and the oscillation is suppressed near $\lambda pprox 3$, at a cost of roughly $0.1$ percentage points of residual; raise it if adjacent sub-bands are seen to ring.
+and integrating over one time step, with $D$ taken as constant across the step, gives the recursion the code actually runs:
 
-Division by $\langle h \rangle^2$ makes the penalty invariant under $h \mapsto ch$, and hence $\lambda$ invariant to the internal current normalisation. The amplitudes are defined relative to a scale fixed from one supplied scan and from the initial guess, and therefore depend on the assumed film thickness and on the number of sub-bands; without this division a given $\lambda$ would impose different smoothing as those settings varied. The misfit term is already scale-free, being expressed relative to the range of each measured scan, so the two contributions now share a common normalisation.
+$$T_m(t_i) = T_m(t_{i-1}) e^{-D(t_i)\lambda_m^2 \Delta t_i} + c_m\left[f(t_{i-1}) - f(t_i)\right]$$
 
-### Diffusivity model
+Iterating this over a full cycle and imposing periodicity gives $T_m(0)$ in closed form, so we get the periodic initial condition directly rather than by cycling the simulation until it settles. Both the accumulation and the stepping are done with `jax.lax.scan`.
 
-The potential dependence of the diffusion coefficient is parameterised as
+The number of particles in the film is the integral of $u$ over the slab, and the faradaic current is its time derivative, evaluated as a finite difference. The only other term we add is one constant offset per scan.
 
-$$D(V) = D_0 \exp\left[\beta (V - V_c)^2\right], \qquad \beta \geq 0,$$
+Earlier revisions also carried exponential edge terms meant to imitate Tafel kinetics at the ends of the sweep. These have been removed. The fitted decay constant converged onto whichever bound it was given rather than onto a value fixed by the data, which is the mark of a general-purpose smoother; worse, the terms carried per-scan freedom and so hid a genuine disagreement between scan rates, which is exactly what a joint fit exists to expose.
 
-with distinct exponents either side of $V_c$. The non-negativity constraint restricts the profile to a minimum at $V_c$, and $V_c$ is confined to the interior of the measured potential window. Where the fit returns $\beta_L = \beta_R = 0$ the profile is flat, $V_c$ is then unconstrained, and both quantities are withheld from the reported results rather than presented as fitted values.
+### The boundary condition and the density of states
 
-### Transport environments
+The boundary value $f(V)$ is the equilibrium occupancy, which is the density of states integrated up to the present potential. Integrating a Gaussian exactly gives an error function, which is expensive to evaluate at every step, so we approximate the integrated peaks with logistic functions instead:
 
-A single diffusivity cannot in general reconcile scans acquired at different sweep rates. Fitted individually, each scan is well described but demands its own $D$, which rises approximately as $v^{1/2}$; the joint residual accordingly grows with the ratio of sweep rates rather than with any individual scan. This is the expected signature of a distribution of transport timescales, of which the coarsest representation is two environments,
+$$f(V) = \sum_{p=1}^{P} \frac{w_p}{1 + \exp\left[-\gamma(V - V_p)\right]}$$
 
-$$I(t) = f\,I\!\left(D\right) + (1-f)\,I\!\left(r D\right), \qquad 0 < r < 1,$$
+Unlike the original formulation, the centres $V_p$ sit on a fixed uniform grid across the potential window and the width $\gamma$ is shared by every sub-band, so only the weights $w_p$ are free. Letting the positions and widths float as well makes the recovered distribution non-unique, since neighbouring sub-bands simply collapse onto one another. We hold the width at $F/RT$ at 298 K, the sharpest a one-electron site can physically be; fitting it instead drove it to the narrowest the grid allowed at every sub-band count we tried.
 
-in which a fraction $f$ of the sites reside where transport is rapid and the remainder where it is slower by a factor $r$. Both populations share the same $DOS(V)$ and the same $D(V)$ shape. The construction introduces two global parameters and no per-scan freedom, and must therefore hold at every sweep rate simultaneously. Physically it corresponds to the ordered and disordered regions of a semicrystalline film, which admit solvated ions at markedly different rates.
+One consequence of fixing the centres and the width is that the simulated current is exactly linear in the weights, which is what makes recovering them well behaved.
 
-The split is refused below three scan rates, since the evidence separating the two environments resides almost entirely in the sweep-rate dependence; the solver then falls back to a single diffusivity and reports having done so.
+### The diffusion coefficient
 
-Note that $f$ and $r$ are independent of the assumed film thickness, whereas the absolute diffusivities scale with $L^2$.
+We model the potential dependence of the diffusion coefficient phenomenologically, as a curve with its minimum at $V_c$ and separate exponents on either side:
+
+$$D(V) = D_0 \exp\left[\beta_{L,R}(V - V_c)^2\right], \qquad \beta_{L,R} \geq 0$$
+
+Keeping the exponents non-negative forces the minimum to sit at $V_c$, and $V_c$ itself is confined to the interior of the measured window. If the fit returns both exponents at zero then $D(V)$ is flat, $V_c$ means nothing, and we withhold both from the reported results rather than presenting them as measurements.
+
+### Two transport environments
+
+A single diffusivity cannot reconcile scans taken at different sweep rates. Fitted one at a time, each scan is described well but demands its own $D$, rising roughly as the square root of the sweep rate, so the joint residual grows with the ratio of sweep rates rather than with any individual scan. This is what a distribution of transport timescales looks like, and the coarsest way to represent one is with two environments:
+
+$$I = f I(D) + (1-f) I(rD)$$
+
+A fraction $f$ of the sites sit where transport is fast, and the rest where it is slower by a factor $r$ between 0 and 1. Both populations share the same density of states and the same shape of $D(V)$. The split costs two global parameters and no per-scan freedom, so it still has to hold at every sweep rate at once. Physically it corresponds to the ordered and disordered regions of a semicrystalline film, which take up solvated ions at very different rates.
+
+Below three scan rates we refuse the split and fall back to a single diffusivity, reporting that we have done so, because almost all of the evidence separating the two environments lives in the sweep-rate dependence.
+
+Note that $f$ and $r$ do not depend on the assumed film thickness, whereas the absolute diffusivities scale with $L^2$.
+
+## Fitting
+
+### The objective
+
+We minimise the weighted mean squared error between the simulated and the measured current. To make sure the optimiser chases the faradaic peaks rather than settling for the baseline, we weight the residual at each point by the curvature of the smoothed experimental current:
+
+$$W \propto 1 + \frac{\left| d^2 I_{\exp} / dt^2 \right|}{\max \left| d^2 I_{\exp} / dt^2 \right|}$$
+
+Every supplied scan rate is fitted at the same time against one shared $D(V)$ and one shared density of states. A constant baseline offset is the only quantity allowed to differ between scans, which is what it means to treat $D(V)$ and the density of states as properties of the film.
+
+Because the current is linear in the sub-band weights, recovering them is a linear inverse problem and inherits the usual noise amplification: left alone, the weights oscillate between neighbouring sub-bands. We therefore add a small second-difference penalty of weight $\lambda$, scaled by the sub-band spacing and by the mean weight so that $\lambda$ means the same thing at any number of sub-bands and under any current normalisation. The default is light enough to leave the result close to unregularised; raise it if neighbouring sub-bands are seen to ring, or set it to zero to switch it off.
 
 ### Staged optimisation
 
-Parameters are released in stages to limit coupling between the faradaic and non-faradaic contributions:
+The parameter space is awkward enough that releasing everything at once finds a poor minimum, so we open it up in four stages:
 
-1. *Baseline* — the constant non-faradaic offset of each scan, with the potential window edges masked.
-2. *Sub-band amplitudes* — the density of states and its shared width, against a frozen baseline.
-3. *Diffusivity* — $D_0$, the two exponents, $V_c$, and where applicable the environment fraction and ratio.
-4. *Joint refinement* — simultaneous relaxation of all parameters.
+1. **Baseline.** Everything frozen except the constant offset of each scan, with the window edges masked.
+2. **Sub-band weights.** The density of states forms against a settled baseline, with the offsets held.
+3. **Diffusivity.** $D_0$, the two exponents and $V_c$, together with the environment fraction and ratio where they apply.
+4. **Polish.** All parameters relaxed together.
 
-### Numerical considerations
+### Numerical notes
 
-Downsampling is applied per scan subject to a lower bound on the retained point count, since the simulator integrates on the grid supplied by the measurement and the fastest scans are the most sparsely sampled. Parameters that converge onto a constraint boundary are reported as such, as their fitted values then reflect the imposed bound rather than the data.
+Each scan is thinned to a fixed resolution in potential rather than by a fixed stride in index. The two are very different: one cycle at 10 mV/s carries around 1360 points per volt and one at 640 mV/s only about 18, so any single stride either leaves the slow scans heavily oversampled or guts the fast ones. The resolution that matters is set by the sub-band grid, which cannot represent a feature narrower than about 1.5 times the sub-band spacing, and sampling finer than a few points across that width buys correlated points rather than information.
+
+Parameters that converge onto a bound are reported as such, since their fitted values then reflect the bound rather than the data.
 
 ## Model and Solver Parameters
 
-The scan rate of each uploaded file is inferred from its filename where possible and may be corrected individually. The remaining parameters are common to the fit.
+The scan rate of each uploaded file is read from its filename where possible and can be corrected individually. The rest of the parameters are shared by the whole fit.
 
 ### Physical
 
 | Parameter | Symbol | Default | Description |
 | --- | --- | --- | --- |
 | Film thickness | $L$ | $10^{-4}$ cm | Diffusion length of the film. The voltammogram constrains $D/L^2$, so the absolute diffusion coefficient scales with $L^2$. |
-| Potential window | $V_{\min}$, $V_{\max}$ | $-1.0$, $1.0$ V | Limits of the swept potential range; also sets the extent of the sub-band grid. |
-| Transport model | — | two environments | Fast/slow split sharing one $DOS(V)$, or a single diffusivity. Requires at least three scan rates; below that the solver falls back to a single diffusivity. |
+| Electrode area | $A$ | 1.0 cm² | Used only to express the density of states per unit volume. It does not enter the fit, and the shape of the recovered distribution does not depend on it. |
+| Potential window | $V_{\min}$, $V_{\max}$ | $-1.0$, $1.0$ V | Limits of the swept range, and the extent of the sub-band grid. |
+| Transport model | — | two environments | Fast/slow split sharing one density of states, or a single diffusivity. Needs at least three scan rates; below that the solver falls back to a single diffusivity. |
 
 ### Density of states
 
 | Parameter | Symbol | Default | Description |
 | --- | --- | --- | --- |
-| Sub-bands | $N$ | 50 | Number of fixed sigmoidal basis functions spanning the potential window. |
-| Sub-band width | $s$ | 38.92 V⁻¹ | Shared inverse width. The default is $F/RT$ at 298 K, the ideal one-electron Nernstian limit. Constrained so that adjacent sub-bands remain overlapping. |
-| DOS smoothing | $\lambda$ | 0.01 | Weight of the second-difference penalty on the sub-band amplitudes. Increase for a smoother distribution; set to zero to disable regularisation. |
+| Sub-bands | $P$ | 50 | Number of fixed logistic sub-bands spanning the potential window. |
+| Sub-band width | $\gamma$ | 38.92 V⁻¹ | Shared inverse width, held fixed rather than fitted. The default is $F/RT$ at 298 K, the ideal one-electron Nernstian limit. |
+| DOS smoothing | $\lambda$ | 0.01 | Weight of the second-difference penalty on the sub-band weights. Raise it for a smoother distribution, or set it to zero to switch it off. |
 
 ### Numerical
 
 | Parameter | Symbol | Default | Description |
 | --- | --- | --- | --- |
-| Spectral terms | — | 20 | Number of eigenmodes retained in the spectral solution. Truncation at 20 alters the simulated current by roughly 1%, but the error is smooth and is absorbed by the sub-band amplitudes: relative to 60 terms the fitted $D$ shifts by under 1% and the per-scan residuals are unchanged. The cost is linear in this number. |
-| Downsample factor | — | 4 | Upper bound on the per-scan sampling stride, subject to a lower bound on the retained point count. |
-| Iterations | — | 500 | Maximum L-BFGS-B iterations per stage. Raising this to 1000 lowers the objective by a further 0.5% and shifts the fitted fast fraction by roughly 0.06; the free hosting tier is approximately thirty times slower than local hardware, so the additional iterations carry a substantial wall-clock cost. |
-| Tolerance | $f_{\mathrm{tol}}$ | $10^{-9}$ | Relative convergence tolerance on the objective. A tolerance of $10^{-12}$ required approximately half again as many iterations while displacing the fitted diffusivity by one part in $10^5$. |
-| Weight constant | — | 1.0 | Uniform term added to the curvature- and magnitude-based residual weighting. |
+| Spectral terms | — | 20 | Modes retained in the spectral solution. Truncating at 20 changes the simulated current by roughly 1%, but the error is smooth and the sub-band weights absorb it: against 60 terms the fitted $D$ moves by under 1% and the per-scan residuals are unchanged. The cost is linear in this number. |
+| Samples per DOS feature | — | 6 | Points kept across the narrowest feature the sub-band grid can represent. At 2 the fitted ratio of diffusivities drifts by 23%, at 3 by about 6%, and at 6 every fitted parameter sits within 1% of an all-points reference for a third of the cost. |
+| Iterations per stage | — | 500 | Maximum L-BFGS-B iterations in each stage. Raising this to 1000 lowers the objective by a further 0.5% and moves the fast fraction by about 0.06, at a real cost in wall-clock time on the free hosting tier. |
+| Tolerance | $f_{\mathrm{tol}}$ | $10^{-9}$ | Relative convergence tolerance on the objective. Asking for $10^{-12}$ needed about half again as many iterations and moved the fitted diffusivity by one part in $10^5$. |
+| Weight constant | — | 1.0 | Uniform term added to the curvature-based residual weighting. |
 
-## Diagnostic Output
+## Output
 
-The application reports the shared physical parameters, the per-scan residual relative to the measured current range, and the extracted $D(V)$ and $DOS(V)$ profiles, together with an overlay of the measured and simulated voltammograms.
+The application reports the shared physical parameters, the residual of each scan relative to its measured current range, and the extracted $D(V)$ and density of states, together with an overlay of the measured and simulated voltammograms.
 
 ## License
 

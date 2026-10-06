@@ -126,42 +126,59 @@ The time-dependent boundary condition $f(t)$ represents the equilibrium surface 
 \begin{equation}
     f(V) = \int_{-\infty}^{V} \text{DOS}(v)\; dv
 \end{equation}
-To capture the complex redox behavior of the system, we model the true DOS as a superposition of $P$ independent Gaussian peaks. The exact analytical integral of a Gaussian yields an Error Function ($\text{erf}$). However, evaluating the Error Function iteratively is computationally expensive. To bypass this, we approximate the integrated Gaussians using a sum of logistic functions. We parameterize the boundary condition as:
+To capture the complex redox behavior of the system, we model the true DOS as a superposition of $P$ sub-bands. The exact analytical integral of a Gaussian yields an Error Function ($\text{erf}$). However, evaluating the Error Function iteratively is computationally expensive. To bypass this, we approximate the integrated peaks using a sum of logistic functions. We parameterize the boundary condition as:
 \begin{equation}
-    f(V) = \sum_{p=1}^P \frac{w_p}{1 + \exp\left[-\gamma_p(V - V_{c,p})\right]}
+    f(V) = \sum_{p=1}^P \frac{w_p}{1 + \exp\left[-\gamma(V - V_p)\right]}
 \end{equation}
-where for each constituent peak $p$, $w_p$ is the weight (capacity), $V_{c,p}$ is the critical peak voltage, and $\gamma_p$ dictates the peak sharpness. This formulation allows JAX to rapidly compute both $f(t)$ and the DOS analytically without relying on expensive numerical integration.
+where $w_p$ is the weight (capacity) of sub-band $p$, $V_p$ is its centre, and $\gamma$ is the sharpness shared by all of them. This formulation allows JAX to rapidly compute both $f(t)$ and the DOS analytically without relying on expensive numerical integration.
+
+Only the weights are free. The centres $V_p$ are fixed on a uniform grid spanning the measured potential window, and the single shared $\gamma$ is held at $F/RT$ at 298 K, which is the sharpest a one-electron site can physically be. Letting the centres and the widths float as well makes the recovered DOS non-unique, since neighbouring sub-bands collapse onto one another; fitted freely, $\gamma$ ran to the narrowest the grid allowed at every $P$ we tried, which is the mark of a knob trading against the weights rather than a measurement of site broadening. Fixing them has a second benefit: the simulated current is then exactly linear in the $w_p$, which is what makes recovering them well behaved.
 
 \subsection{Forward Model and Time-Stepping}
 
-To model the time-dependent diffusion coefficient, we use a phenomenological Gaussian distribution around a central voltage $V_c$, with asymmetric decay rates $\beta_L$ and $\beta_R$ for the anodic and cathodic sweeps:
+To model the time-dependent diffusion coefficient, we use a phenomenological Gaussian distribution around a central voltage $V_c$, with asymmetric rates $\beta_L$ and $\beta_R$ applying below and above $V_c$ respectively:
 \begin{equation}
-    D(V) = D_0 \exp\left[\beta_{L,R} (V - V_c)^2\right].
+    D(V) = D_0 \exp\left[\beta_{L,R} (V - V_c)^2\right], \qquad \beta_{L,R} \geq 0.
 \end{equation}
+Keeping the exponents non-negative holds the minimum of $D(V)$ at $V_c$, and we confine $V_c$ to the interior of the measured window. If the fit returns both exponents at zero then $D(V)$ is flat and $V_c$ is no longer determined by anything, so we withhold it rather than report it as a fitted value.
 
 The periodic initial condition is computed directly using Eq.~\ref{Init Time}. This recursion is calculated rapidly using \texttt{jax.lax.scan}, which accumulates the exponential decay and forcing matrices. 
 
-The total number of particles $N(t)$ in the film is found by integrating the solution $u(x,t)$ over the spatial domain $[0,L]$. The pure Faradaic current is then given by $I = \frac{dN}{dt}$, evaluated numerically as a finite difference. To accurately match experimental data, we add a constant baseline offset ($I_{\text{offset}}$) and background exponential tails simulating Tafel-like kinetics at the voltage boundaries:
+A single diffusivity cannot reconcile scans taken at different sweep rates. Fitted one at a time, each scan is described well but demands its own $D$, rising roughly as the square root of the sweep rate, so the joint residual grows with the ratio of sweep rates rather than with any individual scan. This is what a distribution of transport timescales looks like, and the coarsest representation of one is two environments: a fraction $f$ of the sites where transport is fast, and the remainder where it is slower by a factor $r$,
 \begin{equation}
-    I_{\text{sim}}(t) = \frac{\Delta N}{\Delta t} + I_{\text{offset}} + a_R e^{k_R(V - V_{\max})} - a_L e^{-k_L(V - V_{\min})}
+    I = f\, I(D) + (1-f)\, I(rD), \qquad 0 < r < 1.
 \end{equation}
+Both populations share the same DOS and the same shape of $D(V)$, so the split costs two global parameters and no per-scan freedom, and must therefore hold at every sweep rate at once. Physically it corresponds to the ordered and disordered regions of a semicrystalline film, which take up solvated ions at very different rates. Since almost all of the evidence separating the two environments lives in the sweep-rate dependence, we refuse the split below three scan rates and fall back to a single diffusivity.
+
+The total number of particles $N(t)$ in the film is found by integrating the solution $u(x,t)$ over the spatial domain $[0,L]$. The pure Faradaic current is then given by $I = \frac{dN}{dt}$, evaluated numerically as a finite difference. The only other term we add is a constant baseline offset ($I_{\text{offset}}$):
+\begin{equation}
+    I_{\text{sim}}(t) = \frac{\Delta N}{\Delta t} + I_{\text{offset}}
+\end{equation}
+Earlier versions also carried background exponential tails imitating Tafel kinetics at the ends of the sweep. These have been removed. The fitted decay constant converged onto whichever bound it was given rather than onto a value fixed by the data, which is the mark of a general-purpose smoother; and because the tails carried per-scan freedom, they hid a genuine disagreement between scan rates, which is exactly what fitting the scans jointly exists to expose.
 
 \subsection{Optimization Strategy}
 
-To extract the physical parameters, we frame the task as an optimization problem. The objective function minimizes the weighted mean squared error (MSE) between the simulated current $I_{\text{sim}}$ and the experimental current $I_{\text{exp}}$. 
+To extract the physical parameters, we frame the task as an optimization problem. Every supplied scan rate is fitted at the same time against one shared $D(V)$ and one shared DOS, with a constant baseline offset the only quantity allowed to differ between scans; this is what it means to treat $D(V)$ and the DOS as properties of the film. The objective function minimizes the weighted mean squared error (MSE) between the simulated current $I_{\text{sim}}$ and the experimental current $I_{\text{exp}}$, each scan divided by its own measured range so that no scan dominates the fit simply by carrying more current. 
 
-To ensure the optimizer captures the sharp Faradaic peaks rather than merely fitting the baseline, the loss function is weighted using the second derivative of the smoothed experimental current:
+To ensure the optimizer captures the sharp Faradaic peaks rather than merely fitting the baseline, the loss function is weighted using the second derivative of the smoothed experimental current, together with the current magnitude and a constant floor $c$:
 \begin{equation}
-    W \propto 1 + \frac{\left| \frac{d^2I_{\text{exp}}}{dt^2} \right|}{\max\left| \frac{d^2I_{\text{exp}}}{dt^2} \right|}
+    W = \frac{\left| \frac{d^2I_{\text{exp}}}{dt^2} \right|}{\max\left| \frac{d^2I_{\text{exp}}}{dt^2} \right|} + \frac{\left|I_{\text{exp}}\right|}{\max\left|I_{\text{exp}}\right|} + c
 \end{equation}
+The smoothing is a Savitzky-Golay filter taken over a fixed width in potential rather than over a fixed number of points, since a fixed point count spans very different potential ranges at different sweep rates and would silently weight each scan differently.
+
+Because the current is linear in the weights $w_p$, recovering them is a linear inverse problem and inherits its noise amplification: left to itself, the solution rings from one sub-band to the next. We therefore add a second-difference penalty of weight $\lambda$, divided by the mean weight squared so that $\lambda$ does not change meaning with the overall current scale:
+\begin{equation}
+    \mathcal{L} = \mathcal{L}_{\text{MSE}} + \lambda\,(\Delta V)^{-3}\,\frac{\sum_p \left(w_{p+2} - 2w_{p+1} + w_p\right)^2}{\langle w \rangle^2}
+\end{equation}
+The spacing factor $(\Delta V)^{-3}$ makes the sum an approximation to $\int \left(d^2\text{DOS}/dV^2\right)^2 dV$, so that $\lambda$ carries the same meaning at any number of sub-bands. The default is light, leaving the recovered DOS close to unregularized.
 
 Because the parameter space is complex, finding a global minimum requires a structured approach. We minimize the loss function using the L-BFGS-B algorithm, leveraging exact gradients computed via JAX's reverse-mode automatic differentiation (\texttt{jax.value\_and\_grad}). To avoid local minima, the optimization is executed in four targeted stages:
 
 \begin{enumerate}
-    \item \textbf{Pure Flat Baseline:} Parameters are frozen except for the constant current offset to align the simulation with the data.
-    \item \textbf{Background Tails:} The exponential parameters ($a_{L,R}, k_{L,R}$) are optimized to fit the edges of the voltage sweep.
-    \item \textbf{Anchor Peaks (Constant $D$):} The diffusion coefficient is held constant while the heights and positions of the Gaussian peaks defining the density of states (DOS) are optimized.
-    \item \textbf{Full Non-Linear Polish:} All bounds are relaxed. The full set of parameters, including the asymmetric voltage-dependent diffusion parameters $\beta_L$ and $\beta_R$, are optimized simultaneously to achieve the final fit.
+    \item \textbf{Pure Flat Baseline:} Parameters are frozen except for the constant current offset of each scan, with the edges of the potential window masked so that they do not drag the offset around.
+    \item \textbf{Sub-band Weights:} The offsets are held frozen while the weights $w_p$ defining the density of states (DOS) are optimized, so that the DOS forms against a settled baseline rather than absorbing it.
+    \item \textbf{Diffusivity:} $D_0$, the two exponents $\beta_L$ and $\beta_R$, and $V_c$ are released, together with the environment fraction $f$ and ratio $r$ where the two-environment model applies.
+    \item \textbf{Full Non-Linear Polish:} All bounds are relaxed. The full set of parameters is optimized simultaneously to achieve the final fit.
 \end{enumerate}
 
 Upon convergence, this routine yields the voltage-dependent diffusion $D(V)$ and the Density of States for the experimental chemical system.

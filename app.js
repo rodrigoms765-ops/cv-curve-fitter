@@ -5,12 +5,6 @@
 let stagedFiles = [];
 let detectedColumns = [];
 let isOptimizing = false;
-// A run is named by the client so that a second request can cancel it. The
-// controller is kept only as a fallback: if the solver cannot be reached to be
-// told, the page should still be able to let go.
-let currentJobId = null;
-let cancelRequested = false;
-let activeController = null;
 // One joint fit across every staged scan, not one fit per file.
 let fitResult = null;
 
@@ -417,8 +411,6 @@ window.handleFormSubmit = async function(e) {
         };
     });
 
-    currentJobId = newJobId();
-    cancelRequested = false;
     startOptimizationUI();
 
     const stageEl = document.getElementById('status-stage');
@@ -430,7 +422,7 @@ window.handleFormSubmit = async function(e) {
     try {
         if (stageEl) stageEl.innerText = 'Waking solver…';
         await wakeSolver();
-        fitResult = await executeSolver(files, config, currentJobId);
+        fitResult = await executeSolver(files, config);
         stagedFiles.forEach(f => { f.status = 'done'; });
         if (stageEl) stageEl.innerText = 'Fit Complete';
         if (detailsEl) {
@@ -439,19 +431,11 @@ window.handleFormSubmit = async function(e) {
         updateLivePlotProgress();
         displayExtractedResults();
     } catch (err) {
+        console.error('Joint fit failed:', err);
         fitResult = null;
-        const stopped = cancelRequested || (err && err.cancelled);
-        // Stopping is something the user asked for, so the staged scans go back to
-        // waiting rather than being marked as having failed.
-        stagedFiles.forEach(f => { f.status = stopped ? 'pending' : 'error'; });
-        if (stopped) {
-            if (stageEl) stageEl.innerText = 'Fit Stopped';
-            if (detailsEl) detailsEl.innerText = 'Optimization stopped. Nothing was fitted; adjust the settings and run it again.';
-        } else {
-            console.error('Joint fit failed:', err);
-            if (stageEl) stageEl.innerText = 'Fit Failed';
-            if (detailsEl) detailsEl.innerText = err.message || 'The solver could not complete this fit.';
-        }
+        stagedFiles.forEach(f => { f.status = 'error'; });
+        if (stageEl) stageEl.innerText = 'Fit Failed';
+        if (detailsEl) detailsEl.innerText = err.message || 'The solver could not complete this fit.';
     }
 
     stopOptimizationUI();
@@ -465,10 +449,8 @@ async function wakeSolver() {
     const stageEl = document.getElementById('status-stage');
     const started = Date.now();
     for (let attempt = 0; attempt < 3; attempt++) {
-        if (cancelRequested) return false;
         try {
             const controller = new AbortController();
-            activeController = controller;
             const timer = setTimeout(() => controller.abort(), 120000);
             const res = await fetch(window.location.origin + '/health',
                                     { signal: controller.signal, cache: 'no-store' });
@@ -482,48 +464,8 @@ async function wakeSolver() {
     return false;
 }
 
-function newJobId() {
-    if (window.crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-    return 'job-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
-}
-
-// Ask the solver to stop. It checks between optimiser steps, so the pending
-// request returns on its own with nothing to report - which is the honest
-// outcome, since a half-finished staged fit is not a result.
-window.requestStop = async function () {
-    if (!isOptimizing || cancelRequested) return;
-    cancelRequested = true;
-    const stopBtn = document.getElementById('stop-btn');
-    if (stopBtn) {
-        stopBtn.disabled = true;
-        stopBtn.innerText = 'Stopping…';
-    }
-    const stageEl = document.getElementById('status-stage');
-    if (stageEl) stageEl.innerText = 'Stopping…';
-
-    const body = JSON.stringify({ job_id: currentJobId });
-    for (const path of ['/api/cancel', '/cancel']) {
-        try {
-            const res = await fetch(window.location.origin + path, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: body
-            });
-            if (res.ok) break;
-        } catch (err) {
-            console.warn('Cancel request failed on ' + path, err);
-        }
-    }
-
-    // An instance that is still waking has not reached the solver yet and so has
-    // no flag to read. Rather than leave the page stuck on it, let go.
-    setTimeout(() => {
-        if (isOptimizing && activeController) activeController.abort();
-    }, 10000);
-};
-
 // Single joint fit over every staged scan
-async function executeSolver(files, config, jobId) {
+async function executeSolver(files, config) {
     const endpoints = [
         window.location.origin + "/api/solve",
         window.location.origin + "/solve",
@@ -537,14 +479,6 @@ async function executeSolver(files, config, jobId) {
         if (!stageEl) return;
         // The free instance is roughly 30x slower than a laptop, so set expectations
         // rather than letting a correct-but-slow fit look like a hang.
-        // Once a stop is asked for, say so and keep counting: the solver only
-        // notices between optimiser steps, which on the hosted instance is
-        // seconds away, and a click that produces no visible change reads as a
-        // dead button exactly where the wait is longest.
-        if (cancelRequested) {
-            stageEl.innerText = `Stopping — ${elapsedSec} s elapsed`;
-            return;
-        }
         const hint = elapsedSec > 60
             ? '. The hosted solver is slow; several minutes is normal.'
             : '';
@@ -561,21 +495,16 @@ async function executeSolver(files, config, jobId) {
                 // succeed. Render itself served that request fine; the client was the
                 // only thing giving up. Headroom here for more scans or a colder start.
                 const timeoutId = setTimeout(() => controller.abort(), 900000);
-                activeController = controller;
                 const res = await fetch(endpoint, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ files: files, config: config, job_id: jobId }),
+                    body: JSON.stringify({ files: files, config: config }),
                     signal: controller.signal
                 });
                 clearTimeout(timeoutId);
 
                 if (res.ok) {
                     const data = await res.json();
-                    if (data.type === 'cancelled') {
-                        throw Object.assign(new Error(data.message || 'Optimization stopped.'),
-                                            { cancelled: true });
-                    }
                     // The solver answered. If it reports a problem that is the real
                     // answer, so stop here rather than re-running the fit elsewhere.
                     if (data.type === 'error') {
@@ -585,11 +514,7 @@ async function executeSolver(files, config, jobId) {
                 }
                 lastError = new Error(`Solver returned HTTP ${res.status}`);
             } catch (err) {
-                if (err && (err.fromSolver || err.cancelled)) throw err;
-                // Trying the next endpoint would start the very fit just stopped.
-                if (cancelRequested) {
-                    throw Object.assign(new Error('Optimization stopped.'), { cancelled: true });
-                }
+                if (err && err.fromSolver) throw err;
                 if (err && err.name === 'AbortError') {
                     const mins = ((Date.now() - startTime) / 60000).toFixed(1);
                     err = new Error(`The solver did not respond within ${mins} minutes. `
@@ -602,7 +527,6 @@ async function executeSolver(files, config, jobId) {
         throw lastError || new Error("Could not communicate with solver engine.");
     } finally {
         clearInterval(pollInterval);
-        activeController = null;
     }
 }
 
@@ -610,31 +534,22 @@ function startOptimizationUI() {
     isOptimizing = true;
     const spinner = document.getElementById('status-spinner');
     const submitBtn = document.getElementById('submit-btn');
-    const stopBtn = document.getElementById('stop-btn');
     if (spinner) spinner.classList.remove('hidden');
     if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.innerText = 'Extracting Parameters...';
     }
-    if (stopBtn) {
-        stopBtn.disabled = false;
-        stopBtn.innerText = 'Stop';
-        stopBtn.classList.remove('hidden');
-    }
 }
 
 function stopOptimizationUI() {
     isOptimizing = false;
-    activeController = null;
     const spinner = document.getElementById('status-spinner');
     const submitBtn = document.getElementById('submit-btn');
-    const stopBtn = document.getElementById('stop-btn');
     if (spinner) spinner.classList.add('hidden');
     if (submitBtn) {
         submitBtn.disabled = false;
         submitBtn.innerText = 'Execute Optimization';
     }
-    if (stopBtn) stopBtn.classList.add('hidden');
 }
 
 // Plot theme. The panel heading names each figure and the caption beneath it

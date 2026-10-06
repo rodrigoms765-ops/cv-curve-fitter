@@ -14,8 +14,6 @@ The full derivation of the forward solution is in [`docs/mathematical_methods.te
 
 The interface accepts `.csv` or `.txt` potentiostat files, exposes the model and solver parameters, and lets you export the fitted curves and the extracted quantities without installing anything.
 
-A running fit can be stopped with *Stop*. This reaches the solver rather than just the browser: each run is named by the client, a separate request marks that name cancelled, and the optimiser unwinds at its next step. A stopped run reports no fit at all, since a half-finished staged optimisation has no meaningful intermediate state.
-
 Example data is provided for demonstration. *Load example scans* stages four voltammograms of the same film (40, 80, 160 and 320 mV/s, third cycle of each file, 2 cm² electrode) together with the settings they were fitted with. *Show example result* displays the stored joint fit of those scans immediately, which is useful because a live fit on the hosted instance takes several minutes. The files, settings and stored result all live in `examples/`. The stored result is only valid for the solver that produced it, so regenerate it with `python examples/build_example.py` after any change to `cv_solver.py`.
 
 ## The Model

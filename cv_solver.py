@@ -37,10 +37,6 @@ MIN_SCANS_TWO_SITE = 3     # below this the fast/slow split is not identifiable
 ELEMENTARY_CHARGE = 1.602176634e-19   # C, to turn fitted charge into a state count
 
 
-class FitCancelled(Exception):
-    """The caller asked for the fit to stop. Not an error: there is no result."""
-
-
 # ---------------------------------------------------------------- data loading
 
 # A scan is thinned to a fixed resolution in POTENTIAL, not by a fixed stride in
@@ -450,18 +446,7 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
 
     loss_and_grad = jax.jit(jax.value_and_grad(objective, argnums=0))
 
-    # Checked once per objective call, which is once per optimiser step and the
-    # only place the fit is interruptible: a single L-BFGS-B call runs to its own
-    # convergence with no way in, and one forward-and-gradient evaluation is
-    # milliseconds against a predicate that costs nothing.
-    should_stop = config.get("should_stop")
-
-    def check_stop():
-        if should_stop is not None and should_stop():
-            raise FitCancelled("Optimization stopped.")
-
     def scipy_objective(x, w_list):
-        check_stop()
         loss, grad = loss_and_grad(jnp.array(x), w_list)
         return np.array(loss, dtype=np.float64), np.array(grad, dtype=np.float64)
 
@@ -527,7 +512,6 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     current_x = x0
     res = None
     for label, active, w_list in stages:
-        check_stop()
         res = minimize(scipy_objective, current_x, args=(w_list,),
                        bounds=staged_bounds(current_x, active), jac=True,
                        method="L-BFGS-B", options=opts)

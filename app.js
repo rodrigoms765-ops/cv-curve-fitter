@@ -633,7 +633,7 @@ function updateLivePlotProgress() {
                 mode: 'lines',
                 type: 'scatter',
                 name: `Exp: ${f.name}`,
-                line: { color: chartColors[i % chartColors.length], width: 2.0, dash: 'dot' }
+                line: { color: chartColors[i % chartColors.length], width: 2.0 }
             });
 
             // The solver returns one entry per scan, ordered by scan rate, so match on name.
@@ -647,7 +647,7 @@ function updateLivePlotProgress() {
                     mode: 'lines',
                     type: 'scatter',
                     name: `Fit: ${f.name}`,
-                    line: { color: chartColors[i % chartColors.length], width: 2.8 }
+                    line: { color: chartColors[i % chartColors.length], width: 2.4, dash: 'dash' }
                 });
             }
         }

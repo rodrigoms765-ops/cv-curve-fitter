@@ -150,35 +150,44 @@ A single diffusivity cannot reconcile scans taken at different sweep rates. Fitt
 \end{equation}
 Both populations share the same DOS and the same shape of $D(V)$, so the split costs two global parameters and no per-scan freedom, and must therefore hold at every sweep rate at once. Physically it corresponds to the ordered and disordered regions of a semicrystalline film, which take up solvated ions at very different rates. Since almost all of the evidence separating the two environments lives in the sweep-rate dependence, we refuse the split below three scan rates and fall back to a single diffusivity.
 
-The total number of particles $N(t)$ in the film is found by integrating the solution $u(x,t)$ over the spatial domain $[0,L]$. The pure Faradaic current is then given by $I = \frac{dN}{dt}$, evaluated numerically as a finite difference. The only other term we add is a constant baseline offset ($I_{\text{offset}}$):
+The total number of particles $N(t)$ in the film is found by integrating the solution $u(x,t)$ over the spatial domain $[0,L]$. The pure Faradaic current is then given by $I = \frac{dN}{dt}$, evaluated numerically as a finite difference:
 \begin{equation}
-    I_{\text{sim}}(t) = \frac{\Delta N}{\Delta t} + I_{\text{offset}}
+    I_{\text{sim}}(t) = \frac{\Delta N}{\Delta t}
 \end{equation}
+No other term is added, and nothing is fitted per scan. An earlier version carried a constant current offset for each scan; removing it changed the fits by less than 0.05 percentage points.
 Earlier versions also carried background exponential tails imitating Tafel kinetics at the ends of the sweep. These have been removed. The fitted decay constant converged onto whichever bound it was given rather than onto a value fixed by the data, which is the mark of a general-purpose smoother; and because the tails carried per-scan freedom, they hid a genuine disagreement between scan rates, which is exactly what fitting the scans jointly exists to expose.
+
+\subsection{Series Resistance}
+
+Some films show a peak separation that grows with the current, with sharp cut-offs on one side of a peak; ECP-Magenta is the clearest case. This is the signature of an uncompensated resistance $R$ in the cell. The film then does not see the applied potential, but
+\begin{equation}
+    V_{\text{film}}(t) = V(t) - R\,I(t),
+\end{equation}
+where $I$ is the film's own current. Inserting the measured current here is ill-conditioned: wherever the measured current changes quickly, $V_{\text{film}}$ jumps and the simulated current spikes. We therefore solve the condition self-consistently. Over one time step the recursion for the $T_m$ makes the number of ions in the film affine in the new boundary value,
+\begin{equation}
+    N(t_i) = a_i\, f\!\left(V_{\text{film}}(t_i)\right) + b_i, \qquad 0 < a_i \le L,
+\end{equation}
+since $a_i = L - \sum_m c_m \lambda_m^{-1} \frac{1 - e^{-D\lambda_m^2\Delta t_i}}{D\lambda_m^2\Delta t_i}$ and $\sum_m c_m\lambda_m^{-1} = L$. The condition
+\begin{equation}
+    V_{\text{film}} - V(t_i) + R\,\frac{N(t_i) - N(t_{i-1})}{\Delta t_i} = 0
+\end{equation}
+is then increasing in $V_{\text{film}}$ and has exactly one root, which a few Newton steps find. Only the last Newton step is differentiated, which by the implicit function theorem gives the exact gradient at the root. The periodic initial condition comes from Eq.~\ref{Init Time} applied to the previous pass over the cycle, starting from $V - R\,I_{\text{exp}}$, and two passes converge it. Where the data points are more than 10 mV apart the steps are refined to 10 mV.
+
+With $R = 0$ the model is exactly the one above. On ECP-Magenta, fitting $R$ gives about 89 $\Omega$ and lowers the residual from 5.4\% to 2.0\%. The resistance is well determined; the shape of $D(V)$ is not, since both exponents and $V_c$ end on their bounds.
 
 \subsection{Optimization Strategy}
 
-To extract the physical parameters, we frame the task as an optimization problem. Every supplied scan rate is fitted at the same time against one shared $D(V)$ and one shared DOS, with a constant baseline offset the only quantity allowed to differ between scans; this is what it means to treat $D(V)$ and the DOS as properties of the film. The objective function minimizes the weighted mean squared error (MSE) between the simulated current $I_{\text{sim}}$ and the experimental current $I_{\text{exp}}$, each scan divided by its own measured range so that no scan dominates the fit simply by carrying more current. 
-
-To ensure the optimizer captures the sharp Faradaic peaks rather than merely fitting the baseline, the loss function is weighted using the second derivative of the smoothed experimental current, together with the current magnitude and a constant floor $c$:
+To extract the physical parameters, we frame the task as an optimization problem. Every supplied scan rate is fitted at the same time against one shared $D(V)$ and one shared DOS; this is what it means to treat $D(V)$ and the DOS as properties of the film. The objective is the mean squared error between the simulated current $I_{\text{sim}}$ and the experimental current $I_{\text{exp}}$, each scan divided by its own measured range so that no scan dominates the fit simply by carrying more current:
 \begin{equation}
-    W = \frac{\left| \frac{d^2I_{\text{exp}}}{dt^2} \right|}{\max\left| \frac{d^2I_{\text{exp}}}{dt^2} \right|} + \frac{\left|I_{\text{exp}}\right|}{\max\left|I_{\text{exp}}\right|} + c
+    \mathcal{L} = \frac{1}{S}\sum_{s=1}^{S} \frac{\left\langle \left(I_{\text{sim}} - I_{\text{exp}}\right)^2 \right\rangle_s}{\left(\max I_{\text{exp}} - \min I_{\text{exp}}\right)_s^2}
 \end{equation}
-The smoothing is a Savitzky-Golay filter taken over a fixed width in potential rather than over a fixed number of points, since a fixed point count spans very different potential ranges at different sweep rates and would silently weight each scan differently.
+Earlier versions weighted each point by the curvature of the smoothed experimental current, and added a second-difference smoothing penalty on the weights $w_p$. We tested both on three films (the 0.1~g/L film, ProDOT and ECP-Magenta), and neither was needed. Without the weighting, the plain residual came out slightly lower on all three. Without the penalty, the error on a held-out scan was the same or lower, and the DOS was just as reproducible from fit to fit with one scan left out each time. The penalty had also flattened the narrow peaks of ECP-Magenta. The potential window must still match the data: sub-bands centred well outside it are full or empty for the whole sweep and carry no current, so the data cannot set their weights, and a window reaching more than 50 mV past the data is clipped to it.
 
-Because the current is linear in the weights $w_p$, recovering them is a linear inverse problem and inherits its noise amplification: left to itself, the solution rings from one sub-band to the next. We therefore add a second-difference penalty of weight $\lambda$, divided by the mean weight squared so that $\lambda$ does not change meaning with the overall current scale:
-\begin{equation}
-    \mathcal{L} = \mathcal{L}_{\text{MSE}} + \lambda\,(\Delta V)^{-3}\,\frac{\sum_p \left(w_{p+2} - 2w_{p+1} + w_p\right)^2}{\langle w \rangle^2}
-\end{equation}
-The spacing factor $(\Delta V)^{-3}$ makes the sum an approximation to $\int \left(d^2\text{DOS}/dV^2\right)^2 dV$, so that $\lambda$ carries the same meaning at any number of sub-bands. The default is light, leaving the recovered DOS close to unregularized.
-
-Because the parameter space is complex, finding a global minimum requires a structured approach. We minimize the loss function using the L-BFGS-B algorithm, leveraging exact gradients computed via JAX's reverse-mode automatic differentiation (\texttt{jax.value\_and\_grad}). To avoid local minima, the optimization is executed in four targeted stages:
+We minimize the loss using the L-BFGS-B algorithm, with exact gradients computed by JAX's reverse-mode automatic differentiation (\texttt{jax.value\_and\_grad}). The diffusivity enters as $\log_{10} D_0$, since a film at equilibrium sends it up by decades. The fit starts from a DOS read off the slowest scan: near equilibrium the current divided by the sweep rate is the DOS itself, so half the gap between the two sweeps, divided by the sub-band spacing, gives the starting weights. A flat start does not work; on ECP-Magenta it stalls at a poor minimum. From this start the optimization runs in at most two stages:
 
 \begin{enumerate}
-    \item \textbf{Pure Flat Baseline:} Parameters are frozen except for the constant current offset of each scan, with the edges of the potential window masked so that they do not drag the offset around.
-    \item \textbf{Sub-band Weights:} The offsets are held frozen while the weights $w_p$ defining the density of states (DOS) are optimized, so that the DOS forms against a settled baseline rather than absorbing it.
-    \item \textbf{Diffusivity:} $D_0$, the two exponents $\beta_L$ and $\beta_R$, and $V_c$ are released, together with the environment fraction $f$ and ratio $r$ where the two-environment model applies.
-    \item \textbf{Full Non-Linear Polish:} All bounds are relaxed. The full set of parameters is optimized simultaneously to achieve the final fit.
+    \item \textbf{Film:} every parameter except $R$ is fitted at once. Earlier versions opened the parameters up in warm-up stages (baseline, weights, then diffusivity); on ProDOT and ECP-Magenta those led to a worse minimum, so they were dropped.
+    \item \textbf{Series Resistance}, only when it is switched on: all parameters, now including $R$, are refitted with the film driven at $V - RI$. Released from the start, $R$ can run to its bound, which is why it comes last.
 \end{enumerate}
 
 Upon convergence, this routine yields the voltage-dependent diffusion $D(V)$ and the Density of States for the experimental chemical system.

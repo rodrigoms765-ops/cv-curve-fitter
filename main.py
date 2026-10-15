@@ -29,11 +29,10 @@ from cv_solver import solve_cv, read_csv_text
 DEFAULTS = {
     "film_thickness": (float, 1e-4), "electrode_area": (float, 1.0),
     "v_min": (float, -1.0), "v_max": (float, 1.0),
-    "skip_factor": (int, 1), "samples_per_feature": (float, 6.0),
     "num_peaks": (int, 50), "peak_sharpness": (float, 38.92),
-    "dos_smoothness": (float, 0.01), "max_iter": (int, 500),
+    "max_iter": (int, 10000),
     "tol_ftol": (float, 1e-9), "tol_gtol": (float, 1e-8),
-    "num_terms": (int, 20), "loss_weight_const": (float, 1.0),
+    "num_terms": (int, 20),
 }
 
 
@@ -43,7 +42,9 @@ def build_config(raw):
     # and are ignored. Transport is the fast/slow split instead.
     mode = str(raw.get("transport", "")).lower()
     cfg["transport"] = mode if mode in ("two_site", "single") else "two_site"
-    cfg["smooth_width_V"] = float(raw.get("smooth_width_V", 0.35))
+    cfg["series_resistance"] = float(raw.get("series_resistance", 0.0) or 0.0)
+    cfg["fit_resistance"] = str(raw.get("fit_resistance", "no")).lower() in ("yes", "true", "1", "on")
+    cfg["solver_step"] = float(raw.get("solver_step", 0.01))
     return cfg
 
 
@@ -91,7 +92,7 @@ def health_check():
         "hardware": "GPU" if is_gpu else "CPU / Local",
         "cost": "100% Free",
         "devices": devices,
-        "features": ["Automatic Differentiation", "JIT Parallelized Scan", "L-BFGS-B Multi-stage"]
+        "features": ["Automatic Differentiation", "JIT Parallelized Scan", "L-BFGS-B"]
     }
 
 @app.post("/api/solve")

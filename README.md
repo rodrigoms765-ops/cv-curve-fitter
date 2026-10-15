@@ -16,6 +16,17 @@ The interface accepts `.csv` or `.txt` potentiostat files, exposes the model and
 
 Example data is provided for demonstration. *Load example scans* stages four voltammograms of the same film (40, 80, 160 and 320 mV/s, third cycle of each file, 2 cm² electrode) together with the settings they were fitted with. *Show example result* displays the stored joint fit of those scans immediately, which is useful because a live fit on the hosted instance takes several minutes. The files, settings and stored result all live in `examples/`. The stored result is only valid for the solver that produced it, so regenerate it with `python examples/build_example.py` after any change to `cv_solver.py`.
 
+### Running it locally
+
+A fit runs far faster on a laptop than on the hosted instance. With Python 3.10 or later:
+
+```
+pip install -r requirements.txt
+python -m uvicorn app:app --port 8000
+```
+
+and open `http://127.0.0.1:8000`. On Windows, `start_backend.bat` does the same. The four-scan example takes about a minute and a half. ECP-Magenta with the series resistance switched on takes two to four minutes.
+
 ## The Model
 
 ### The diffusion problem
@@ -42,7 +53,7 @@ $$T_m(t_i) = T_m(t_{i-1}) e^{-D(t_i)\lambda_m^2 \Delta t_i} + c_m\left[f(t_{i-1}
 
 Iterating this over a full cycle and imposing periodicity gives $T_m(0)$ in closed form, so we get the periodic initial condition directly rather than by cycling the simulation until it settles. Both the accumulation and the stepping are done with `jax.lax.scan`.
 
-The number of particles in the film is the integral of $u$ over the slab, and the faradaic current is its time derivative, evaluated as a finite difference. The only other term we add is one constant offset per scan.
+The number of particles in the film is the integral of $u$ over the slab, and the faradaic current is its time derivative, evaluated as a finite difference. No other term is added, and nothing is fitted per scan. An earlier version carried a constant current offset for each scan; removing it changed the fits by less than 0.05 percentage points.
 
 Earlier revisions also carried exponential edge terms meant to imitate Tafel kinetics at the ends of the sweep. These have been removed. The fitted decay constant converged onto whichever bound it was given rather than onto a value fixed by the data, which is the mark of a general-purpose smoother; worse, the terms carried per-scan freedom and so hid a genuine disagreement between scan rates, which is exactly what a joint fit exists to expose.
 
@@ -76,30 +87,37 @@ Below three scan rates we refuse the split and fall back to a single diffusivity
 
 Note that $f$ and $r$ do not depend on the assumed film thickness, whereas the absolute diffusivities scale with $L^2$.
 
+### Series resistance
+
+Some films show a peak separation that grows with the current, together with sharp cut-offs on one side of a peak. ECP-Magenta is the clearest case. This is the signature of an uncompensated resistance $R$ in the cell: the film does not see the applied potential but
+
+$$V_{\text{film}}(t) = V(t) - R I(t)$$
+
+where $I$ is the film's own current. Using the measured current here is ill-conditioned, since wherever the measured current changes quickly the film potential jumps and the simulated current spikes, so we solve the condition self-consistently. Over one time step the number of ions in the film is affine in the new edge occupancy, $N = a f(V_{\text{film}}) + b$ with $a$ between 0 and $L$, so $V_{\text{film}} - V + R I(V_{\text{film}})$ increases with $V_{\text{film}}$ and has exactly one root, which a few Newton steps find. The periodic state comes from the same closed form as above, applied to the previous pass over the cycle. Steps are refined to at most 10 mV where the data points are further apart than that.
+
+With $R = 0$ the model is the one above, unchanged. When $R$ is fitted, it is released last, starting from the fit without it, since released from the start it can run to its bound. Once $R$ accounts for the peak separation the film may turn out to be at equilibrium at every sweep rate, in which case $D$ runs to its upper bound and only a lower bound on it is reported. On ECP-Magenta (20 to 320 mV/s, window from the data, 26 sub-bands) we find $R$ of about 89 Ω and a residual of 2.0%, against 5.4% without it. The resistance is well determined. The shape of $D(V)$ is not: both exponents and $V_c$ end on their bounds.
+
 ## Fitting
 
 ### The objective
 
-We minimise the weighted mean squared error between the simulated and the measured current. To make sure the optimiser chases the faradaic peaks rather than settling for the baseline, we weight the residual at each point by the curvature of the smoothed experimental current:
+We minimise the mean squared error between the simulated and the measured current, each scan divided by its own measured range so that no scan dominates simply by carrying more current. Every supplied scan rate is fitted at the same time against one shared $D(V)$ and one shared density of states, which is what it means to treat them as properties of the film.
 
-$$W \propto 1 + \frac{\left| d^2 I_{\exp} / dt^2 \right|}{\max \left| d^2 I_{\exp} / dt^2 \right|}$$
+That is the whole objective. Earlier versions weighted each point by the curvature of the smoothed current and added a second-difference smoothing penalty on the sub-band weights. We tested both on three films (the 0.1 g/L film, ProDOT and ECP-Magenta). Neither was needed. Without the weighting the plain residual came out slightly lower on all three. Without the penalty the error on a held-out scan was the same or lower. The density of states was just as reproducible from fit to fit with one scan left out each time. The penalty had also flattened the narrow peaks of ECP-Magenta.
 
-Every supplied scan rate is fitted at the same time against one shared $D(V)$ and one shared density of states. A constant baseline offset is the only quantity allowed to differ between scans, which is what it means to treat $D(V)$ and the density of states as properties of the film.
+The potential window should match the data. Sub-bands centred well outside the data are full or empty throughout the sweep and carry no current, so the data cannot set their weights. A window reaching more than 50 mV past the data is clipped to it.
 
-Because the current is linear in the sub-band weights, recovering them is a linear inverse problem and inherits the usual noise amplification: left alone, the weights oscillate between neighbouring sub-bands. We therefore add a small second-difference penalty of weight $\lambda$, scaled by the sub-band spacing and by the mean weight so that $\lambda$ means the same thing at any number of sub-bands and under any current normalisation. The default is light enough to leave the result close to unregularised; raise it if neighbouring sub-bands are seen to ring, or set it to zero to switch it off.
+### Optimisation
 
-### Staged optimisation
+The fit starts from a density of states read off the slowest scan. Near equilibrium $I/v$ is the density of states, so half the gap between the two sweeps, divided by the sub-band spacing, gives the starting weights. A flat start does not work: on ECP-Magenta it stalls at a poor minimum.
 
-The parameter space is awkward enough that releasing everything at once finds a poor minimum, so we open it up in four stages:
+From that start every parameter is fitted at once, with $D$ as $\log_{10} D$, since a film at equilibrium sends it up by decades. Earlier versions opened the parameters up in stages (baseline, weights, diffusivity, then everything). On ProDOT and ECP-Magenta those warm-up stages led to a worse minimum, so they are gone.
 
-1. **Baseline.** Everything frozen except the constant offset of each scan, with the window edges masked.
-2. **Sub-band weights.** The density of states forms against a settled baseline, with the offsets held.
-3. **Diffusivity.** $D_0$, the two exponents and $V_c$, together with the environment fraction and ratio where they apply.
-4. **Polish.** All parameters relaxed together.
+When the series resistance is switched on, a second stage refits everything, including $R$, with the film driven at $V - RI$.
 
 ### Numerical notes
 
-Each scan is thinned to a fixed resolution in potential rather than by a fixed stride in index. The two are very different: one cycle at 10 mV/s carries around 1360 points per volt and one at 640 mV/s only about 18, so any single stride either leaves the slow scans heavily oversampled or guts the fast ones. The resolution that matters is set by the sub-band grid, which cannot represent a feature narrower than about 1.5 times the sub-band spacing, and sampling finer than a few points across that width buys correlated points rather than information.
+Each scan is thinned to about one point every 10 mV of potential rather than by a fixed stride in index. The two are very different: one cycle at 10 mV/s carries around 1360 points per volt and one at 640 mV/s only about 18. 10 mV is a ninth of the 90 mV sub-band width, and sampling finer changes the fit by nothing measurable.
 
 Parameters that converge onto a bound are reported as such, since their fitted values then reflect the bound rather than the data.
 
@@ -113,26 +131,25 @@ The scan rate of each uploaded file is read from its filename where possible and
 | --- | --- | --- | --- |
 | Film thickness | $L$ | $10^{-4}$ cm | Diffusion length of the film. The voltammogram constrains $D/L^2$, so the absolute diffusion coefficient scales with $L^2$. |
 | Electrode area | $A$ | 1.0 cm² | Used only to express the density of states per unit volume. It does not enter the fit, and the shape of the recovered distribution does not depend on it. |
-| Potential window | $V_{\min}$, $V_{\max}$ | $-1.0$, $1.0$ V | Limits of the swept range, and the extent of the sub-band grid. |
+| Potential window | $V_{\min}$, $V_{\max}$ | from the data | Limits of the swept range, and the extent of the sub-band grid. Set from the data when files are loaded; a window more than 50 mV past the data is clipped to it. |
 | Transport model | — | two environments | Fast/slow split sharing one density of states, or a single diffusivity. Needs at least three scan rates; below that the solver falls back to a single diffusivity. |
+| Series resistance | $R$ | 0 Ω | Uncompensated cell resistance. The starting value when fitted, the value used when held. |
+| Fit series resistance | — | No | Fit $R$ as a final stage. Switch it on for films whose peak separation grows with the current, such as ECP-Magenta. |
 
 ### Density of states
 
 | Parameter | Symbol | Default | Description |
 | --- | --- | --- | --- |
-| Sub-bands | $P$ | 50 | Number of fixed logistic sub-bands spanning the potential window. |
+| Sub-bands | $P$ | 50 | Number of fixed logistic sub-bands spanning the potential window. About one every 40 mV is enough: 50 for a 2 V window, 25 for a 1 V window. |
 | Sub-band width | $\gamma$ | 38.92 V⁻¹ | Shared inverse width, held fixed rather than fitted. The default is $F/RT$ at 298 K, the ideal one-electron Nernstian limit. |
-| DOS smoothing | $\lambda$ | 0.01 | Weight of the second-difference penalty on the sub-band weights. Raise it for a smoother distribution, or set it to zero to switch it off. |
 
 ### Numerical
 
 | Parameter | Symbol | Default | Description |
 | --- | --- | --- | --- |
 | Spectral terms | — | 20 | Modes retained in the spectral solution. Truncating at 20 changes the simulated current by roughly 1%, but the error is smooth and the sub-band weights absorb it: against 60 terms the fitted $D$ moves by under 1% and the per-scan residuals are unchanged. The cost is linear in this number. |
-| Samples per DOS feature | — | 6 | Points kept across the narrowest feature the sub-band grid can represent. At 2 the fitted ratio of diffusivities drifts by 23%, at 3 by about 6%, and at 6 every fitted parameter sits within 1% of an all-points reference for a third of the cost. |
-| Iterations per stage | — | 500 | Maximum L-BFGS-B iterations in each stage. Raising this to 1000 lowers the objective by a further 0.5% and moves the fast fraction by about 0.06, at a real cost in wall-clock time on the free hosting tier. |
+| Iterations per stage | — | 10000 | Maximum L-BFGS-B iterations in each stage. A fit normally stops on the tolerance first, after a few thousand iterations. Capping it at 500 takes the example from about 80 s to 10 s, and moves its RMSE by 0.02 percentage points and the fast fraction by 0.007. |
 | Tolerance | $f_{\mathrm{tol}}$ | $10^{-9}$ | Relative convergence tolerance on the objective. Asking for $10^{-12}$ needed about half again as many iterations and moved the fitted diffusivity by one part in $10^5$. |
-| Weight constant | — | 1.0 | Uniform term added to the curvature-based residual weighting. |
 
 ## Output
 

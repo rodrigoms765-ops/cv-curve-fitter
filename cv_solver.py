@@ -1,7 +1,7 @@
 """Multi-scan CV fitting engine.
 
 One film has one density of states, so every scan rate is fit simultaneously
-against a single shared DOS. Only a constant current offset differs between scans.
+against a single shared DOS. Nothing is fitted per scan.
 
 Transport is either one diffusivity or two environments - a fast fraction and a
 slow remainder sharing that same DOS. Two environments exist because one
@@ -14,9 +14,9 @@ a semicrystalline film, which admit hydrated ions at very different rates.
 Fitting one scan alone cannot separate the DOS from diffusion, so a single-scan D
 is not identifiable, and two environments need more scan rates still.
 
-An uncompensated series resistance, driving the film at V - IR, was tried and
-removed: on every film measured so far the loss rises monotonically from R = 0
-and a free fit puts it at zero of its own accord.
+An uncompensated series resistance can be switched on. The film is then driven
+at V - R*I, with I the film's own current, solved self-consistently at every
+time step. It is fitted last, starting from the fit without it.
 """
 
 import io
@@ -25,7 +25,6 @@ import numpy as np
 import pandas as pd
 from functools import partial
 from scipy.optimize import minimize
-from scipy.signal import savgol_filter
 import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
@@ -39,24 +38,11 @@ ELEMENTARY_CHARGE = 1.602176634e-19   # C, to turn fitted charge into a state co
 
 # ---------------------------------------------------------------- data loading
 
-# A scan is thinned to a fixed resolution in POTENTIAL, not by a fixed stride in
-# index. The two differ enormously: one cycle at 10 mV/s carries ~1360 points per
-# volt and one at 640 mV/s only ~18, so any single stride either leaves the slow
-# scans 75x oversampled or guts the fast ones.
-#
-# The resolution that matters is set by the DOS basis, which cannot represent a
-# feature narrower than 1.5 x the sub-band spacing - which is exactly what the
-# sharpness cap enforces. Sampling finer than a few points across that width buys
-# correlated points and cost, not information. Tying the budget to the basis also
-# makes it follow num_peaks: ask for a finer DOS and every scan gets more points.
-#
-# Six was chosen by refitting at successively coarser targets against an all-points
-# reference (scans 20/80/320): at 2 samples per feature d_ratio drifts 23%, at 3 it
-# drifts ~6%, and at 6 every fitted parameter sits within 1% of the reference for a
-# third of the cost.
-SAMPLES_PER_FEATURE = 6
-MIN_POINTS_PER_SCAN = 120   # never gut a short scan, whatever the rule says
-MAX_POINTS_PER_SCAN = 800   # cost ceiling
+# A scan is thinned to about one point every 10 mV of potential, not by a fixed
+# stride in index: one cycle at 10 mV/s carries ~1360 points per volt and one at
+# 640 mV/s only ~18. 10 mV is a ninth of the 90 mV sub-band width; on the test
+# films it gives the same fit as the basis-tied rule it replaced.
+POINT_SPACING_V = 0.01
 
 
 def sniff_delimiter(sample):
@@ -77,38 +63,20 @@ def read_csv_text(content):
     return pd.read_csv(io.StringIO(content), sep=sniff_delimiter(content[:8192]))
 
 
-def resolve_stride(potential, v_min, v_max, num_peaks,
-                   samples_per_feature=SAMPLES_PER_FEATURE, skip_factor=1):
-    """Stride leaving this scan at the resolution the DOS basis can actually use.
+def resolve_stride(potential):
+    """Stride leaving about one point every POINT_SPACING_V volts.
 
-    Fast scans need no special case: they already carry fewer points per volt than
-    the basis can use, so the rule returns 1 for them on its own. skip_factor is
-    honoured as a minimum stride so an explicit request to thin further still
-    works, but it is no longer needed to protect anything.
+    Fast scans already carry fewer points than that, so the rule returns 1 for them.
     """
-    n = len(potential)
-    if n < 2:
+    if len(potential) < 2:
         return 1
-    path = float(np.sum(np.abs(np.diff(potential))))
-    spacing = (v_max - v_min) / max(num_peaks - 1, 1)
-    min_fwhm = 1.5 * spacing                  # narrowest representable feature
-    if path <= 0.0 or min_fwhm <= 0.0:
+    gap = float(np.median(np.abs(np.diff(potential))))
+    if gap <= 0.0:
         return 1
-
-    have = n / path                                          # points per volt supplied
-    need = max(float(samples_per_feature), 0.5) / min_fwhm   # points per volt usable
-
-    stride = max(1, int(have // need))
-    stride = max(stride, int(skip_factor or 1))
-    stride = min(stride, max(1, n // MIN_POINTS_PER_SCAN))   # keep the floor
-    stride = max(stride, -(-n // MAX_POINTS_PER_SCAN))       # keep the ceiling
-    return max(1, stride)
+    return max(1, int(POINT_SPACING_V // gap))
 
 
-def load_and_preprocess_cv_data(df, pot_col, cur_col, scan_rate_v_s,
-                                v_min, v_max, num_peaks,
-                                samples_per_feature=SAMPLES_PER_FEATURE,
-                                skip_factor=1):
+def load_and_preprocess_cv_data(df, pot_col, cur_col, scan_rate_v_s):
     if isinstance(df, str):
         df = read_csv_text(pathlib.Path(df).read_text(encoding='utf-8'))
     if pot_col >= df.shape[1] or cur_col >= df.shape[1]:
@@ -134,8 +102,7 @@ def load_and_preprocess_cv_data(df, pot_col, cur_col, scan_rate_v_s,
     voltage_steps = np.abs(np.diff(raw_potential, prepend=raw_potential[0]))
     raw_time = np.cumsum(voltage_steps) / scan_rate_v_s
 
-    step = resolve_stride(raw_potential, v_min, v_max, num_peaks,
-                          samples_per_feature, skip_factor)
+    step = resolve_stride(raw_potential)
     return raw_time[::step], raw_potential[::step], raw_current[::step]
 
 
@@ -169,12 +136,8 @@ def run_fourier_simulation_with_data(time_array, potential_array, diffusivity,
 
     k_dt_matrix = jnp.outer(d_val_arr * dt_arr, wavenumbers**2)
     decay_matrix = jnp.exp(-k_dt_matrix)
-
-    forcing_factor = jnp.where(
-        k_dt_matrix < 1e-8,
-        1.0 - k_dt_matrix / 2.0,
-        (1.0 - decay_matrix) / k_dt_matrix
-    )
+    # (1 - exp(-k dt)) / (k dt), accurate down to small k dt
+    forcing_factor = -jnp.expm1(-k_dt_matrix) / k_dt_matrix
 
     base_forcing = jnp.outer(occ_eq_old_arr - occ_eq_new_arr, fourier_coeffs)
     forcing_matrix = base_forcing * forcing_factor
@@ -205,6 +168,171 @@ def run_fourier_simulation_with_data(time_array, potential_array, diffusivity,
     return jnp.diff(total_ions_shifted) / dt_arr
 
 
+# ------------------------------------------------------- series resistance stage
+
+def _fit_with_resistance(x, r_start, fit_resistance, loaded, thickness, num_terms,
+                         peak_vcrits_jax, scale, two_site, MULT, NUM_GLOBALS,
+                         i_max, target_jax, bounds_for, opts, solver_step):
+    """Refit everything with the film driven at V - R*I_film.
+
+    Per time step the film's ion content is affine in the new edge occupancy,
+    N = slope * occ + intercept with 0 < slope <= L, so V_film - V + R * I(V_film)
+    is increasing in V_film and has one root, found by Newton. Only the last
+    Newton step is differentiated. The periodic state comes from the closed form
+    applied to the previous pass, starting from V - R * I_measured.
+    """
+    num_scans = len(loaded)
+    n_x = len(x)
+    n = np.arange(1, num_terms + 1)
+    wavenumbers = jnp.array((2 * n - 1) * np.pi / (2 * thickness))
+    fourier_coeffs = jnp.array(4 / ((2 * n - 1) * np.pi))
+    sin_integrals = 1.0 / wavenumbers
+
+    # Each data interval, plus the one closing the cycle, split into steps of at
+    # most solver_step volts.
+    grids = []
+    for d in loaded:
+        t, v, c = d["time"], d["potential"], d["current"]
+        dt = np.diff(t)
+        dt[dt <= 0] = 1e-6
+        rate = np.sum(np.abs(np.diff(v))) / max(t[-1] - t[0], 1e-12)
+        dt = np.append(dt, max(abs(v[0] - v[-1]) / rate, 1e-6))
+        v_end = np.append(v[1:], v[0])
+        i_end = np.append(c[1:], c[0])
+        k = int(max(1, np.ceil(np.median(np.abs(np.diff(v))) / solver_step)))
+        frac = np.arange(1, k + 1) / k
+        grids.append({
+            "k": k,
+            "dt": jnp.array(dt),
+            "v": jnp.array((v[:, None] + (v_end - v)[:, None] * frac).ravel()),
+            "i": jnp.array((c[:, None] + (i_end - c)[:, None] * frac).ravel()),
+            "fine_dt": jnp.array(np.repeat(dt / k, k)),
+        })
+
+    def bands(v, heights, sharpness):
+        fermi = 1.0 / (1.0 + jnp.exp(-sharpness * (v[..., None] - peak_vcrits_jax)))
+        occupancy = jnp.sum(heights * fermi, axis=-1)
+        capacitance = jnp.sum(heights * sharpness * fermi * (1.0 - fermi), axis=-1)
+        return occupancy, capacitance
+
+    def mode_factors(v_path, dt, diffusivities, beta_left, beta_right, v_center):
+        beta = jnp.where(v_path < v_center, beta_left, beta_right)
+        stretch = jnp.exp(beta * (v_path - v_center) ** 2)
+        k_dt = (stretch * dt)[:, None, None] * diffusivities[None, :, None] * wavenumbers ** 2
+        return jnp.exp(-k_dt), -jnp.expm1(-k_dt) / k_dt
+
+    def periodic_start(decays, pushes):
+        def step(carry, xs):
+            total_decay, summed = carry
+            decay, push = xs
+            return (total_decay * decay, summed * decay + push), None
+        first = (jnp.ones_like(decays[0]), jnp.zeros_like(decays[0]))
+        (total_decay, summed), _ = scan(step, first, (decays, pushes))
+        return summed / (1.0 - total_decay + 1e-15)
+
+    def simulate(grid, diffusivities, fractions, beta_left, beta_right, v_center,
+                 sharpness, heights, r_ohm):
+        weight = fractions[:, None] * sin_integrals
+        v_applied = grid["v"]
+        fine_dt = grid["fine_dt"]
+        v_change = v_applied - jnp.roll(v_applied, 1)
+
+        def run_cycle(state, v_path):
+            decays, forcings = mode_factors(v_path, fine_dt, diffusivities,
+                                            beta_left, beta_right, v_center)
+
+            def step(state, xs):
+                modes, occ_old, ions_old, v_film = state
+                v_now, change, dt, decay, forcing = xs
+                decayed = modes * decay
+                pull = jnp.sum(weight * fourier_coeffs * forcing)
+                slope = thickness - pull
+                intercept = jnp.sum(weight * decayed) + occ_old * pull
+
+                def error(v):
+                    occ, cap = bands(v, heights, sharpness)
+                    current = scale * (slope * occ + intercept - ions_old) / dt
+                    gradient = 1.0 + r_ohm * scale * slope * cap / dt
+                    return v - v_now + r_ohm * current, gradient
+
+                v = v_film + change
+                for _ in range(4):
+                    e, g = error(v)
+                    v = v - jnp.clip(e / g, -0.1, 0.1)
+                v = jax.lax.stop_gradient(v)
+                e, g = error(v)
+                v = v - e / g
+                occ, _ = bands(v, heights, sharpness)
+                push = (occ_old - occ) * fourier_coeffs * forcing
+                ions = slope * occ + intercept
+                return (decayed + push, occ, ions, v), (ions, v, push)
+
+            inputs = (v_applied, v_change, fine_dt, decays, forcings)
+            end, (ions_end, new_path, pushes) = scan(step, state, inputs)
+            return end, ions_end, new_path, decays, pushes
+
+        def start_state(modes, v):
+            occ, _ = bands(v, heights, sharpness)
+            return (modes, occ, thickness * occ + jnp.sum(weight * modes), v)
+
+        v_path = v_applied - r_ohm * grid["i"]
+        occ, _ = bands(v_path, heights, sharpness)
+        decays, forcings = mode_factors(v_path, fine_dt, diffusivities,
+                                        beta_left, beta_right, v_center)
+        pushes = (jnp.roll(occ, 1) - occ)[:, None, None] * fourier_coeffs * forcings
+        state = start_state(periodic_start(decays, pushes), v_path[-1])
+        for _ in range(2):
+            start = state
+            end, ions_end, v_path, decays, pushes = run_cycle(start, v_path)
+            state = start_state(periodic_start(decays, pushes), end[3])
+        k = grid["k"]
+        ions_end = ions_end[k - 1::k]
+        ions_before = jnp.concatenate([start[2][None], ions_end[:-1]])
+        current = scale * (ions_end - ions_before) / grid["dt"]
+        return current[:-1]
+
+    @jax.jit
+    def forward(q):
+        diffusivity = MULT["diff"] * 10.0 ** q[0]
+        beta_left = q[1] * MULT["beta"]
+        beta_right = q[2] * MULT["beta"]
+        v_center = q[3]
+        sharpness = q[4] * MULT["sharp"]
+        heights = q[NUM_GLOBALS:n_x]
+        r_ohm = q[n_x] / i_max
+        if two_site:
+            diffusivities = jnp.stack([diffusivity, diffusivity * q[6]])
+            fractions = jnp.stack([q[5], 1.0 - q[5]])
+        else:
+            diffusivities = jnp.stack([diffusivity])
+            fractions = jnp.ones(1)
+        total = 0.0
+        sims = []
+        for i in range(num_scans):
+            sim = simulate(grids[i], diffusivities, fractions, beta_left, beta_right,
+                           v_center, sharpness, heights, r_ohm)
+            sims.append(sim)
+            mse = jnp.mean((sim - target_jax[i]) ** 2)
+            ptp = jnp.maximum(jnp.ptp(target_jax[i]), 1e-12)
+            total += mse / ptp ** 2 * LOSS_SCALE
+        return total / num_scans, sims
+
+    loss_and_grad = jax.jit(jax.value_and_grad(lambda q: forward(q)[0]))
+
+    def scipy_objective(q):
+        loss, grad = loss_and_grad(jnp.array(q))
+        return float(loss), np.array(grad, dtype=np.float64)
+
+    q0 = np.append(np.array(x, dtype=np.float64), r_start * i_max)
+    bounds = [bounds_for(i, value) for i, value in enumerate(q0[:n_x])]
+    bounds.append((0.0, 1.0) if fit_resistance else (q0[n_x], q0[n_x]))
+    res = minimize(scipy_objective, q0, bounds=bounds, jac=True,
+                   method="L-BFGS-B", options=opts)
+    q = res.x
+    final_loss, sims = forward(jnp.array(q))
+    return float(q[n_x] / i_max), q[:n_x].copy(), float(final_loss), sims
+
+
 # ------------------------------------------------------------------ main solver
 
 def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
@@ -220,6 +348,23 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     v_min = float(config["v_min"])
     v_max = float(config["v_max"])
     num_peaks = int(config["num_peaks"])
+
+    # Sub-bands centred outside the data stay full or empty for the whole scan, so
+    # they carry no current and the data cannot set their heights. A window
+    # reaching well past the data is therefore clipped to it.
+    data_lo, data_hi = np.inf, -np.inf
+    for s in scans:
+        if pot_col < s["df"].shape[1]:
+            pot = pd.to_numeric(s["df"].iloc[:, pot_col], errors='coerce').dropna()
+            if len(pot):
+                data_lo = min(data_lo, float(pot.min()))
+                data_hi = max(data_hi, float(pot.max()))
+    window_clipped = False
+    if np.isfinite(data_lo) and (v_min < data_lo - 0.05 or v_max > data_hi + 0.05):
+        requested = (v_min, v_max)
+        v_min = max(v_min, round(data_lo, 3))
+        v_max = min(v_max, round(data_hi, 3))
+        window_clipped = True
     # Electrode area, needed only to express the DOS per unit volume. It does
     # not enter the fit: the misfit is scale-free and the calibration constant
     # absorbs the overall current magnitude.
@@ -234,13 +379,13 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     if transport_requested not in ("two_site", "single"):
         transport_requested = "two_site"
 
-    NUM_GLOBALS = 7    # D0, two betas, V_center, sharpness, frac_fast, d_ratio
-    NUM_INDEP = 1      # per scan: a constant current offset, nothing else
+    # log10(D / MULT["diff"]), two betas, V_center, sharpness, frac_fast, d_ratio,
+    # then the sub-band heights. D is fitted on a log scale: a film at equilibrium
+    # sends it up by decades.
+    NUM_GLOBALS = 7
     MULT = {
         "diff": thickness**2 / 10.0,
         "beta": 1.0,
-        # Set from the data once the scans are loaded - see below.
-        "offset": None,
         "sharp": NERNST_SHARPNESS,
     }
 
@@ -284,21 +429,11 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
                           peak_vcrits_jax,
                           sharpness * jnp.ones_like(peak_vcrits_jax)], axis=1)
 
-    # Second-difference operator scaled so ||D2 h||^2 approximates the integral of
-    # (d2 DOS / dV2)^2. Without the spacing factors the same smoothing weight would
-    # mean something different at every value of num_peaks.
-    d2_scaled = jnp.array(np.diff(np.eye(num_peaks), n=2, axis=0)
-                          * (peak_spacing ** -1.5)) if num_peaks > 2 else None
-
     # --- load every scan ------------------------------------------------------
     loaded = []
     for s in scans:
-        t, v, i = load_and_preprocess_cv_data(
-            s["df"], pot_col, cur_col, float(s["scan_rate"]),
-            v_min, v_max, num_peaks,
-            float(config.get("samples_per_feature", SAMPLES_PER_FEATURE)),
-            int(config.get("skip_factor", 1)),
-        )
+        t, v, i = load_and_preprocess_cv_data(s["df"], pot_col, cur_col,
+                                              float(s["scan_rate"]))
         loaded.append({"name": s.get("name", ""), "scan_rate": float(s["scan_rate"]),
                        "time": t, "potential": v, "current": i})
     loaded.sort(key=lambda d: d["scan_rate"])
@@ -315,78 +450,54 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     pot_jax = [jnp.array(d["potential"]) for d in loaded]
     target_jax = [jnp.array(d["current"][1:]) for d in loaded]
 
-    # Emphasise regions of high curvature and large current, and mask the window
-    # edges during the baseline stage so the tails do not drag the offset around.
-    weights_full, weights_masked = [], []
-    edge = (v_max - v_min) * 0.05
-    smooth_width_v = float(config.get("smooth_width_V", 0.35))
-    for d in loaded:
-        cur = d["current"]
-        # A fixed potential width, not a fixed point count. 51 points spans 0.36 V
-        # at 80 mV/s but 1.45 V at 320 mV/s, so a fixed count silently gave each
-        # scan a different weighting.
-        pts_per_volt = len(cur) / max(np.sum(np.abs(np.diff(d["potential"]))), 1e-12)
-        window = int(round(smooth_width_v * pts_per_volt))
-        window = max(5, min(window, len(cur)))
-        if window % 2 == 0:
-            window -= 1
-        smoothed = savgol_filter(cur, window, 3) if window > 3 else cur
-        d2 = np.pad(np.abs(np.diff(smoothed, n=2)), (1, 1), mode="edge")
-        w = (d2 / (np.max(d2) + 1e-12)
-             + np.abs(cur) / (np.max(np.abs(cur)) + 1e-12)
-             + float(config.get("loss_weight_const", 1.0)))
-        w = w[1:].ravel().copy()
-        wm = w.copy()
-        wm[d["potential"][1:] < v_min + edge] = 0.0
-        wm[d["potential"][1:] > v_max - edge] = 0.0
-        weights_full.append(jnp.array(w))
-        weights_masked.append(jnp.array(wm))
+    r_start = max(float(config.get("series_resistance", 0.0)), 0.0)
+    fit_resistance = bool(config.get("fit_resistance", False))
+    use_resistance = fit_resistance or r_start > 0.0
 
     # --- initial guess --------------------------------------------------------
     mean_pot = float(np.mean([np.mean(d["potential"]) for d in loaded]))
     x0 = np.concatenate([
-        [1.0, 0.0, 0.0, mean_pot, sharp_init / MULT["sharp"],
+        [0.0, 0.0, 0.0, mean_pot, sharp_init / MULT["sharp"],
          0.5,      # frac_fast: share of the sites in the fast environment
          0.1],     # d_ratio: D_slow / D_fast
-        np.zeros(num_scans),
         np.ones(num_peaks),
     ])
 
-    # Scale the offset by the largest measured current rather than by a fixed
-    # 1e-4 A. Every other entry in the parameter vector is O(1), and a hardcoded
-    # offset scale quietly tied the conditioning of the fit to the units the
-    # current arrived in: at 1e-1 A the offsets reach L-BFGS-B a thousand times
-    # larger than everything else, and it walks a different path to a different
-    # optimum. Rescaling a dataset by 1e3 moved d_ratio by 22% and the fast
-    # fraction by 10%; scaled this way both stay under 1%.
+    # The resistance is fitted as the ohmic drop at the largest measured current,
+    # R * i_max in volts, so it reaches L-BFGS-B at O(1) like everything else.
     i_max = max(float(np.max(np.abs(d["current"]))) for d in loaded)
-    MULT["offset"] = max(i_max, 1e-12)
 
-    # The offset is the one nuisance parameter left, so cap it at the largest
-    # measured current: past that it would be standing in for the signal itself.
-    offset_max = i_max / MULT["offset"]
-
-    # Fix the overall current scale from the slowest scan, then set each scan's
-    # starting offset so simulated and measured means agree.
+    # Fix the overall current scale from the slowest scan.
     init_peaks = jnp.array(np.column_stack(
         [np.ones(num_peaks), peak_vcrits, np.full(num_peaks, sharp_init)]))
-    calib = [np.array(run_fourier_simulation_with_data(
-        time_jax[i], pot_jax[i],
-        x0[0] * MULT["diff"], 0.0, 0.0, mean_pot,
-        init_peaks, num_terms, thickness)) for i in range(num_scans)]
-
-    sim_ptp = max(np.max(np.abs(calib[0])), 1e-12)
+    calib = np.array(run_fourier_simulation_with_data(
+        time_jax[0], pot_jax[0], MULT["diff"] * 10.0 ** x0[0], 0.0, 0.0, mean_pot,
+        init_peaks, num_terms, thickness))
+    sim_ptp = max(np.max(np.abs(calib)), 1e-12)
     calibrated_scale = float(np.max(np.abs(loaded[0]["current"])) / sim_ptp)
     calibrated_scale_jax = jnp.array(calibrated_scale)
 
-    for i in range(num_scans):
-        gap = np.mean(loaded[i]["current"][1:]) - np.mean(calib[i] * calibrated_scale)
-        x0[NUM_GLOBALS + i * NUM_INDEP] = gap / MULT["offset"]
+    # Starting DOS read off the slowest scan: near equilibrium I/v is the DOS, so
+    # take half the gap between the two sweeps, on the V - R*I axis, spread over
+    # the sub-band spacing. A flat start can leave the fit stuck far from the data.
+    slow = loaded[0]
+    v_corrected = slow["potential"] - r_start * slow["current"]
+    charge = slow["current"] / slow["scan_rate"]
+    forward_sweep = np.diff(slow["potential"], prepend=slow["potential"][0]) > 0
+    branches = []
+    for sweep in (forward_sweep, ~forward_sweep):
+        order = np.argsort(v_corrected[sweep])
+        branches.append(np.interp(peak_vcrits, v_corrected[sweep][order],
+                                  charge[sweep][order]))
+    start_dos = np.clip((branches[0] - branches[1]) / 2.0, 0.0, None)
+    start_heights = start_dos * peak_spacing / (calibrated_scale * thickness)
+    if start_heights.max() > 0.0:
+        x0[NUM_GLOBALS:] = np.maximum(start_heights, 1e-3 * start_heights.max())
 
     # --- forward model over all scans ----------------------------------------
     @jax.jit
-    def compute_forward_multi(p, w_list):
-        diffusivity = p[0] * MULT["diff"]
+    def compute_forward_multi(p):
+        diffusivity = MULT["diff"] * 10.0 ** p[0]
         beta_left = p[1] * MULT["beta"]
         beta_right = p[2] * MULT["beta"]
         v_center = p[3]
@@ -394,14 +505,12 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
         frac_fast = p[5]
         d_ratio = p[6]
 
-        peak_heights = p[NUM_GLOBALS + NUM_INDEP * num_scans:]
+        peak_heights = p[NUM_GLOBALS:]
         peaks_matrix = build_peaks_matrix(peak_heights, sharpness)
 
         total_loss = 0.0
         sims = []
         for i in range(num_scans):
-            offset = p[NUM_GLOBALS + i * NUM_INDEP] * MULT["offset"]
-
             sim = run_fourier_simulation_with_data(
                 time_jax[i], pot_jax[i], diffusivity, beta_left, beta_right,
                 v_center, peaks_matrix, num_terms, thickness)
@@ -413,47 +522,32 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
                     time_jax[i], pot_jax[i], diffusivity * d_ratio, beta_left,
                     beta_right, v_center, peaks_matrix, num_terms, thickness)
                 sim = frac_fast * sim + (1.0 - frac_fast) * sim_slow
-            # Everything but the constant offset is faradaic by construction.
-            final = sim * calibrated_scale_jax + offset
+            final = sim * calibrated_scale_jax
             sims.append(final)
 
-            wmse = jnp.average((final - target_jax[i])**2, weights=w_list[i])
+            mse = jnp.mean((final - target_jax[i])**2)
             ptp = jnp.maximum(jnp.ptp(target_jax[i]), 1e-12)
             # Squared rather than root, and carried in units of (RMSE as a percent
             # of range) squared so the loss stays of order one and the optimiser
             # tolerances keep their meaning.
-            total_loss += wmse / ptp**2 * LOSS_SCALE
-
-        # Without a smoothness penalty the heights ring from nail to nail; the
-        # heights are a linear inverse problem and inherit its noise amplification.
-        #
-        # Divided by the mean amplitude squared so that lambda is invariant under
-        # h -> c*h. The overall current scale is fixed internally from the slowest
-        # scan, so without this the same lambda smooths two datasets differently
-        # purely because their currents differ in magnitude - and the same data
-        # differently depending on which scan happened to set the scale.
-        if d2_scaled is not None:
-            scale2 = jnp.maximum(jnp.mean(peak_heights)**2, 1e-30)
-            roughness = jnp.sum((d2_scaled @ peak_heights)**2) / scale2
-        else:
-            roughness = 0.0
-        total_loss = total_loss / num_scans + float(config.get("dos_smoothness", 0.01)) * roughness
-        return total_loss, sims
+            total_loss += mse / ptp**2 * LOSS_SCALE
+        return total_loss / num_scans, sims
 
     @jax.jit
-    def objective(p, w_list):
-        return compute_forward_multi(p, w_list)[0]
+    def objective(p):
+        return compute_forward_multi(p)[0]
 
-    loss_and_grad = jax.jit(jax.value_and_grad(objective, argnums=0))
+    loss_and_grad = jax.jit(jax.value_and_grad(objective))
 
-    def scipy_objective(x, w_list):
-        loss, grad = loss_and_grad(jnp.array(x), w_list)
+    def scipy_objective(x):
+        loss, grad = loss_and_grad(jnp.array(x))
         return np.array(loss, dtype=np.float64), np.array(grad, dtype=np.float64)
 
     # --- bounds ---------------------------------------------------------------
     def bounds_for(idx, val):
         if idx == 0:
-            return (max(1e-8, val - 5.0), val + 5.0)
+            # log10(D / (L^2/10)): L^2/D from 1e5 s down to 1 ms.
+            return (-4.0, 4.0)
         # Non-negative betas keep D(V) U-shaped. Opposite signs splice the two
         # halves into a monotonic curve with a kink at V_center.
         if idx in (1, 2):
@@ -474,55 +568,45 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
             return (0.02, 0.98) if two_site else (val, val)
         if idx == 6:
             return (1e-3, 0.9) if two_site else (val, val)
-        if idx < NUM_GLOBALS + NUM_INDEP * num_scans:
-            # Absolute, not recomputed from the current value each stage. The
-            # drifting form let the offset ratchet onto whatever limit the previous
-            # stage happened to leave, so it landed on a bound rather than being fit.
-            return (-offset_max, offset_max)
         return (0.0, None)   # nail heights; a density of states cannot go negative
 
-    def staged_bounds(target, active):
-        return [bounds_for(i, v) if i in active else (v - 1e-9, v + 1e-9)
-                for i, v in enumerate(target)]
-
-    # --- staged optimisation --------------------------------------------------
-    all_idx = list(range(len(x0)))
-    idx_offset = [NUM_GLOBALS + i * NUM_INDEP for i in range(num_scans)]
-    idx_diffusion = [0, 1, 2, 3]
-    idx_peaks = list(range(NUM_GLOBALS + NUM_INDEP * num_scans, len(x0)))
-
-    stages = [
-        ("baseline", idx_offset, weights_masked),
-        # The offsets stay frozen so the DOS forms against a settled baseline
-        # instead of absorbing it.
-        ("peaks", idx_peaks + ([4] if fit_dos_width else []), weights_full),
-        ("diffusion", idx_diffusion + ([5, 6] if two_site else []), weights_full),
-        ("polish", all_idx, weights_full),
-    ]
-
+    # --- optimisation ---------------------------------------------------------
+    # One stage over everything, from the start above. Warm-up stages that fitted
+    # the transport first led some films into a worse minimum.
     # 1e-12 asked L-BFGS-B for twelve-digit convergence and bought nothing: half
-    # again as many polish iterations to move D by one part in 1e5, four orders
-    # below the fit's own uncertainty.
+    # again as many iterations to move D by one part in 1e5, four orders below
+    # the fit's own uncertainty.
     opts = {
-        "maxiter": int(config.get("max_iter", 500)),
+        "maxiter": int(config.get("max_iter", 10000)),
         "ftol": float(config.get("tol_ftol", 1e-9)),
         "gtol": float(config.get("tol_gtol", 1e-8)),
     }
+    res = minimize(scipy_objective, x0, jac=True, method="L-BFGS-B",
+                   bounds=[bounds_for(i, v) for i, v in enumerate(x0)], options=opts)
+    if loop and queue:
+        loop.call_soon_threadsafe(queue.put_nowait, {
+            "type": "update", "stage": "fit", "loss": float(res.fun)})
 
-    current_x = x0
-    res = None
-    for label, active, w_list in stages:
-        res = minimize(scipy_objective, current_x, args=(w_list,),
-                       bounds=staged_bounds(current_x, active), jac=True,
-                       method="L-BFGS-B", options=opts)
-        current_x = res.x
+    x = res.x
+    final_loss = float(res.fun)
+    _, final_sims = compute_forward_multi(jnp.array(x))
+
+    # --- series resistance ----------------------------------------------------
+    # The film sees V - R*I with I its own current. Released from the start, R can
+    # run to its bound, so it is fitted last, from the fit above.
+    resistance = 0.0
+    if use_resistance:
+        resistance, x, final_loss, final_sims = _fit_with_resistance(
+            x, r_start, fit_resistance, loaded, thickness, num_terms, peak_vcrits_jax,
+            calibrated_scale_jax, two_site, MULT, NUM_GLOBALS, i_max, target_jax,
+            bounds_for, opts, max(float(config.get("solver_step", 0.01)), 1e-4))
         if loop and queue:
             loop.call_soon_threadsafe(queue.put_nowait, {
-                "type": "update", "stage": label, "loss": float(res.fun)})
+                "type": "update", "stage": "resistance", "loss": final_loss})
 
     # --- results --------------------------------------------------------------
-    x = res.x
-    D0 = float(x[0] * MULT["diff"])
+    d_lower_bound_only = bool(x[0] > 3.9)
+    D0 = float(MULT["diff"] * 10.0 ** x[0])
     beta_left = float(x[1] * MULT["beta"])
     beta_right = float(x[2] * MULT["beta"])
     v_center = float(x[3])
@@ -536,15 +620,14 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     # on, so it drifts anywhere inside its bounds. Reporting it then would dress a
     # meaningless number as a measurement; the UI hides these when this is False.
     d_of_v_determined = not (beta_left < 1e-6 and beta_right < 1e-6)
-
-    _, final_sims = compute_forward_multi(jnp.array(x), weights_full)
+    environments_merged = two_site and abs(d_ratio - 0.9) < 1e-3
 
     v_plot = np.linspace(v_min, v_max, 500)
     d_of_v = D0 * np.exp(np.where(v_plot < v_center, beta_left, beta_right)
                          * (v_plot - v_center)**2)
     d_of_v_slow = (d_of_v * d_ratio) if two_site else None
 
-    heights = np.asarray(x[NUM_GLOBALS + NUM_INDEP * num_scans:]) * calibrated_scale
+    heights = np.asarray(x[NUM_GLOBALS:]) * calibrated_scale
     e = np.exp(-sharpness * (v_plot[np.newaxis, :] - peak_vcrits[:, np.newaxis]))
     dos_matrix = heights[:, np.newaxis] * sharpness * e / (1.0 + e)**2
     dos_total = dos_matrix.sum(axis=0)
@@ -565,6 +648,20 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
 
     # A parameter sitting on its bound is reporting the constraint, not the data.
     notes = []
+    if window_clipped:
+        notes.append(
+            f"The window {requested[0]:g} to {requested[1]:g} V reached past the data, "
+            f"so it was clipped to {v_min:g} to {v_max:g} V. Sub-bands outside the data "
+            f"carry no current, so the data cannot set their heights.")
+    if use_resistance:
+        notes.append(
+            f"Series resistance {'fitted' if fit_resistance else 'held'} at "
+            f"{resistance:.1f} ohm, an ohmic drop of {1000 * resistance * i_max:.0f} mV "
+            f"at the largest measured current.")
+    if d_lower_bound_only:
+        notes.append(
+            "D is at its upper bound: the film is at equilibrium over every sweep, so "
+            "only a lower bound on D can be given.")
     if transport_requested == "two_site" and not two_site:
         notes.append(
             f"Fell back to a single diffusivity: the fast/slow split needs at least "
@@ -575,7 +672,7 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
     if num_scans < 2:
         notes.append("Only one scan rate was fit. D is not identifiable from a "
                      "single scan - the DOS and diffusion terms cannot be separated.")
-    if two_site and abs(d_ratio - 0.9) < 1e-3:
+    if environments_merged:
         notes.append("The slow/fast ratio is on its upper bound, so the two "
                      "environments have merged and the data is not resolving a split.")
     elif two_site and d_ratio < 1.01e-3:
@@ -625,9 +722,6 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
         f"a measurement: at L = {thickness:.3g} cm, a thickness wrong by 2x moves every "
         "D by 4x. The fast fraction and the slow/fast ratio do not depend on it.")
 
-    # Charge audit. The anodic sweep integrates to a directly measurable charge, so
-    # if the non-faradaic terms carry much of it they are absorbing signal that
-    # belongs to the DOS. In practice they carry only a couple of percent.
     dos_charge = float(thickness * np.sum(heights))
     # Sites per unit volume implied by that charge. Reported for completeness,
     # but it is an extrapolation: the model says most sites barely participate
@@ -642,19 +736,15 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
         tgt = d["current"][1:]
         rmse = float(100.0 * np.sqrt(np.mean((sim - tgt)**2)) / np.ptp(tgt))
 
-        offset = float(x[NUM_GLOBALS + i * NUM_INDEP] * MULT["offset"])
         dt = np.diff(d["time"])
         fwd = np.diff(d["potential"]) > 0
         q_meas = float(np.sum(tgt[fwd] * dt[fwd]))
-        q_non_far = float(offset * np.sum(dt[fwd]))
 
         scan_results.append({
             "name": d["name"],
             "scan_rate": d["scan_rate"],
             "rmse_pct": rmse,
             "anodic_charge": q_meas,
-            "non_faradaic_pct": float(100.0 * q_non_far / q_meas) if q_meas else 0.0,
-            "baseline_offset": offset,
             "exp_potential": d["potential"][1:].tolist(),
             "exp_current": tgt.tolist(),
             "sim_current": sim.tolist(),
@@ -679,7 +769,15 @@ def solve_cv(scans, config, pot_col, cur_col, queue=None, loop=None):
             "dos_fwhm": float(fwhm),
             "dos_overlap": float(fwhm / peak_spacing),
             "num_scans": num_scans,
-            "final_loss": float(res.fun),
+            "final_loss": final_loss,
+            "series_resistance": resistance,
+            "resistance_used": use_resistance,
+            "resistance_fitted": fit_resistance,
+            "ir_drop_max": resistance * i_max,
+            "d_lower_bound_only": d_lower_bound_only,
+            "environments_merged": environments_merged,
+            "v_min": v_min,
+            "v_max": v_max,
             "film_thickness": thickness,
             "dos_charge": dos_charge,
             "electrode_area": electrode_area,

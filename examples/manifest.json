@@ -32,13 +32,9 @@
     "v_max": 1.004,
     "num_peaks": 50,
     "peak_sharpness": 38.92,
-    "dos_smoothness": 0.01,
-    "smooth_width_V": 0.35,
     "num_terms": 20,
-    "samples_per_feature": 6,
-    "max_iter": 500,
-    "tol_ftol": 1e-09,
-    "loss_weight_const": 1.0
+    "max_iter": 10000,
+    "tol_ftol": 1e-09
   },
   "result": "result.json"
 }

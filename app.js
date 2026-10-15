@@ -678,14 +678,24 @@ function displayExtractedResults() {
         heading.style.marginBottom = '1rem';
         const twoSite = p.transport === 'two_site';
         const nScans = p.num_scans || stagedFiles.length;
+        // Merged environments are one diffusivity, whatever was asked for.
+        const merged = twoSite && p.environments_merged;
         heading.innerText = `Shared across ${nScans} sweep rate${nScans === 1 ? '' : 's'}`
-            + ` — ${twoSite ? 'two transport environments' : 'a single diffusivity'}`;
+            + ` — ${twoSite && !merged ? 'two transport environments' : 'a single diffusivity'}`
+            + (p.resistance_used ? ', with series resistance' : '');
         paramsDiv.appendChild(heading);
 
         const grid = document.createElement('div');
         grid.className = 'stats-grid';
         const cards = [];
-        if (twoSite) {
+        if (p.d_lower_bound_only) {
+            // At equilibrium over every sweep: the data only bound D from below.
+            cards.push({ label: 'Diffusivity (film at equilibrium)',
+                         value: `≥ ${(p.d_fast || 0).toExponential(1)} cm²/s` });
+        } else if (merged) {
+            cards.push({ label: 'Diffusivity (environments merged)',
+                         value: `${(p.d_fast || 0).toExponential(3)} cm²/s` });
+        } else if (twoSite) {
             cards.push(
                 { label: 'Diffusivity, fast environment', value: `${(p.d_fast || 0).toExponential(3)} cm²/s` },
                 { label: 'Diffusivity, slow environment', value: `${(p.d_slow || 0).toExponential(3)} cm²/s` },
@@ -707,6 +717,12 @@ function displayExtractedResults() {
         } else {
             cards.push({ label: 'D(V) shape', value: 'flat — not determined' });
         }
+        if (p.resistance_used) {
+            cards.push({ label: `Series resistance${p.resistance_fitted ? '' : ' (held)'}`,
+                         value: `${(p.series_resistance || 0).toFixed(1)} Ω` });
+            cards.push({ label: 'Ohmic drop at the largest current',
+                         value: `${(1000 * (p.ir_drop_max || 0)).toFixed(0)} mV` });
+        }
         cards.forEach(c => {
             const card = document.createElement('div');
             card.className = 'stat-card';
@@ -715,7 +731,7 @@ function displayExtractedResults() {
         });
         paramsDiv.appendChild(grid);
 
-        // Per-scan: only the fit quality and the non-faradaic offset differ.
+        // Per-scan: only the fit quality differs; nothing is fitted per scan.
         if (fitResult.scans && fitResult.scans.length) {
             const perScan = document.createElement('div');
             perScan.style.marginTop = '1.5rem';
@@ -724,7 +740,6 @@ function displayExtractedResults() {
                     <td><span style="color:${chartColors[i % chartColors.length]};">&#9632;</span> ${s.name || '&mdash;'}</td>
                     <td>${(s.scan_rate * 1000).toFixed(0)}</td>
                     <td>${s.rmse_pct.toFixed(2)}</td>
-                    <td>${s.baseline_offset.toExponential(2)}</td>
                 </tr>`).join('');
             perScan.innerHTML = `
                 <h4>Fit Quality by Sweep Rate</h4>
@@ -735,7 +750,6 @@ function displayExtractedResults() {
                             <th>File</th>
                             <th>Rate (mV s<sup>&minus;1</sup>)</th>
                             <th>RMSE (% range)</th>
-                            <th>Offset (A)</th>
                         </tr>
                     </thead>
                     <tbody>${rows}</tbody>

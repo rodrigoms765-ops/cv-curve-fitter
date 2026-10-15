@@ -15,13 +15,11 @@ async def test():
                 "film_thickness": 1e-4,
                 "v_min": -1.0,
                 "v_max": 1.0,
-                "skip_factor": 10,
                 "num_peaks": 4,
                 "num_terms": 25,
                 "max_iter": 50,
                 "tol_ftol": 1e-8,
                 "tol_gtol": 1e-7,
-                "loss_weight_const": 1.0,
                 "pot_col": 8,
                 "cur_col": 9
             },

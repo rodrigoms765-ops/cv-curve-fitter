@@ -48,20 +48,18 @@ def solve_cv_api(files, config_json: str):
             "electrode_area": float(raw_config.get("electrode_area", 1.0)),
             "v_min": float(raw_config.get("v_min", -1.0)),
             "v_max": float(raw_config.get("v_max", 1.0)),
-            # Downsampling is resolution-driven now; skip_factor is only an
-            # optional manual minimum stride and defaults to inactive.
-            "skip_factor": int(raw_config.get("skip_factor", 1)),
-            "samples_per_feature": float(raw_config.get("samples_per_feature", 6)),
             "num_peaks": int(raw_config.get("num_peaks", 50)),
             "peak_sharpness": float(raw_config.get("peak_sharpness", 38.92)),
-            "dos_smoothness": float(raw_config.get("dos_smoothness", 0.01)),
-            "max_iter": int(raw_config.get("max_iter", 500)),
+            "max_iter": int(raw_config.get("max_iter", 10000)),
             "tol_ftol": float(raw_config.get("tol_ftol", 1e-9)),
             "tol_gtol": float(raw_config.get("tol_gtol", 1e-8)),
             "num_terms": int(raw_config.get("num_terms", 20)),
-            "loss_weight_const": float(raw_config.get("loss_weight_const", 1.0)),
-            "smooth_width_V": float(raw_config.get("smooth_width_V", 0.35)),
-            "transport": _transport_mode(raw_config)
+            "transport": _transport_mode(raw_config),
+            # Ohms; the starting value when fitted, the value used when held.
+            "series_resistance": float(raw_config.get("series_resistance", 0.0) or 0.0),
+            "fit_resistance": str(raw_config.get("fit_resistance", "no")).lower()
+                              in ("yes", "true", "1", "on"),
+            "solver_step": float(raw_config.get("solver_step", 0.01)),
         }
         pot_col = int(raw_config.get("pot_col", 0))
         cur_col = int(raw_config.get("cur_col", 1))
@@ -103,6 +101,14 @@ def solve_cv_api(files, config_json: str):
                 "dos_fwhm": shared["dos_fwhm"],
                 "num_scans": shared["num_scans"],
                 "final_loss": shared["final_loss"],
+                "series_resistance": shared["series_resistance"],
+                "resistance_used": shared["resistance_used"],
+                "resistance_fitted": shared["resistance_fitted"],
+                "ir_drop_max": shared["ir_drop_max"],
+                "d_lower_bound_only": shared["d_lower_bound_only"],
+                "environments_merged": shared["environments_merged"],
+                "v_min": shared["v_min"],
+                "v_max": shared["v_max"],
                 "film_thickness": shared["film_thickness"],
                 "dos_charge": shared["dos_charge"],
                 "electrode_area": shared["electrode_area"],

@@ -132,6 +132,23 @@
                                 </div>
                                 <div class="input-grid" style="margin-top: 0.9rem;">
                                     <div class="form-group">
+                                        <div class="label-row">
+                                            <label for="series_resistance">Series resistance <i>R</i> (&Omega;)</label>
+                                            <button type="button" class="help-toggle" aria-expanded="false" aria-controls="hint-resistance" aria-label="About the series resistance" onclick="window.toggleHint &amp;&amp; window.toggleHint(this, 'hint-resistance');">?</button>
+                                        </div>
+                                        <input type="number" step="any" id="series_resistance" name="series_resistance" value="0" min="0" />
+                                        <span class="field-hint" id="hint-resistance" role="note" hidden>The uncompensated resistance of the cell. The film is driven at <i>V</i> &minus; <i>IR</i>, with <i>I</i> its own current. Switch on fitting for films whose peak separation grows with the current, such as ECP-Magenta. It is fitted last, starting from this value; with fitting off, this value is held.</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="fit_resistance">Fit series resistance</label>
+                                        <select id="fit_resistance" name="fit_resistance" class="academic-dropdown">
+                                            <option value="no">No</option>
+                                            <option value="yes">Yes</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="input-grid" style="margin-top: 0.9rem;">
+                                    <div class="form-group">
                                         <label for="v_min">Window <i>V</i><sub>min</sub> (V)</label>
                                         <input type="number" step="any" id="v_min" name="v_min" value="-1.0" required />
                                     </div>
@@ -151,40 +168,28 @@
                                     <fieldset class="form-section sub-section">
                                         <div class="input-grid">
                                             <div class="form-group">
-                                                <label for="num_peaks">Sub-bands <i>N</i></label>
+                                                <div class="label-row">
+                                                    <label for="num_peaks">Sub-bands <i>N</i></label>
+                                                    <button type="button" class="help-toggle" aria-expanded="false" aria-controls="hint-subbands" aria-label="About the number of sub-bands" onclick="window.toggleHint &amp;&amp; window.toggleHint(this, 'hint-subbands');">?</button>
+                                                </div>
                                                 <input type="number" id="num_peaks" name="num_peaks" value="50" min="5" max="200" />
+                                                <span class="field-hint" id="hint-subbands" role="note" hidden>About one sub-band every 40 mV is enough: 50 for a 2 V window, 25 for a 1 V window. More only slows the fit.</span>
                                             </div>
                                             <div class="form-group">
                                                 <label for="peak_sharpness">Sub-band width (V<sup>&minus;1</sup>)</label>
                                                 <input type="number" step="any" id="peak_sharpness" name="peak_sharpness" value="38.92" min="5" max="120" />
                                             </div>
                                             <div class="form-group">
-                                                <label for="dos_smoothness">DOS smoothing &lambda;</label>
-                                                <input type="number" step="any" id="dos_smoothness" name="dos_smoothness" value="0.01" min="0" />
-                                            </div>
-                                            <div class="form-group">
-                                                <label for="smooth_width_V">Weighting window (V)</label>
-                                                <input type="number" step="any" id="smooth_width_V" name="smooth_width_V" value="0.35" min="0.05" />
-                                            </div>
-                                            <div class="form-group">
                                                 <label for="num_terms">Spectral terms</label>
                                                 <input type="number" id="num_terms" name="num_terms" value="20" min="10" max="200" />
                                             </div>
                                             <div class="form-group">
-                                                <label for="samples_per_feature">Samples per DOS feature</label>
-                                                <input type="number" id="samples_per_feature" name="samples_per_feature" value="6" min="1" max="40" />
-                                            </div>
-                                            <div class="form-group">
                                                 <label for="max_iter">Iterations per stage</label>
-                                                <input type="number" id="max_iter" name="max_iter" value="500" min="10" max="4000" />
+                                                <input type="number" id="max_iter" name="max_iter" value="10000" min="10" max="100000" />
                                             </div>
                                             <div class="form-group">
                                                 <label for="tol_ftol">Tolerance <i>f</i><sub>tol</sub></label>
                                                 <input type="number" step="any" id="tol_ftol" name="tol_ftol" value="1e-9" />
-                                            </div>
-                                            <div class="form-group">
-                                                <label for="loss_weight_const">Weight constant</label>
-                                                <input type="number" step="any" id="loss_weight_const" name="loss_weight_const" value="1.0" />
                                             </div>
                                         </div>
                                     </fieldset>

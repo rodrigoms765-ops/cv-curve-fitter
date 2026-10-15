@@ -10,7 +10,7 @@ python -c "import jax; print('JAX Version:', jax.__version__)" 2>nul
 if %errorlevel% neq 0 (
     echo [WARNING] JAX not detected or error importing JAX.
     echo Installing required packages...
-    pip install fastapi uvicorn websockets pandas scipy numpy jax
+    pip install -r requirements.txt
 )
 echo.
 echo Starting FastAPI + JAX Backend on http://127.0.0.1:8000 ...
@@ -19,5 +19,5 @@ start http://127.0.0.1:8000
 echo.
 echo Press Ctrl+C to stop the server.
 echo.
-python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn app:app --host 127.0.0.1 --port 8000
 pause
